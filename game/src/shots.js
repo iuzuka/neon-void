@@ -1,8 +1,9 @@
-// The screenshot scenes behind ?shot=start|play|action|over. Each one plays the real
-// rules forward from a fresh world for a fixed number of steps, steered by a simple
-// autopilot (dodge what is close above, chase the nearest core or enemy, fire, spend
-// a Nova when the sky is full), so the frame is what a short game really looks like
-// and the same seed always gives the same frame.
+// The screenshot scenes behind ?shot=start|play|action|over. Each one stages a
+// real scene — turrets standing, a wave under way, a boss on screen — then plays
+// the rules forward for a fixed number of steps, steered by a simple autopilot
+// (dodge what is close above, chase the nearest prism or enemy, fire, spend a Nova
+// when the sky is full), so the frame is what a short game really looks like and
+// the same seed always gives the same frame.
 
 import { STEP } from './config.js';
 import { EVENT_OVER } from './world.js';
@@ -11,7 +12,7 @@ import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 const START_SECONDS = 6;
 const OVER_LIMIT_SECONDS = 120;
 
-/** Steer the ship: dodge the closest threat above, else chase a core or an enemy. */
+/** Steer the ship: dodge the closest threat above, else chase a prism or an enemy. */
 function autopilot(state, skill) {
   const p = state.player;
   if (skill === 0) {
@@ -70,28 +71,15 @@ function playForward(world, seconds, skill) {
   return world.state.player.lives <= 0;
 }
 
-/** Play until the named wave is under way and busy, or the cap runs out. */
-function playUntilWave(world, wave, spawned, skill, capSeconds) {
-  const steps = Math.floor(capSeconds / STEP);
-  for (let i = 0; i < steps; i += 1) {
-    const pilot = autopilot(world.state, skill);
-    const events = world.step(STEP, pilot.move, pilot.firing, pilot.nova, false);
-    if (events & EVENT_OVER) return true;
-    if (world.state.wave === wave && world.state.waveState === 'fighting' && world.state.waveSpawned >= spawned) {
-      return false;
-    }
-  }
-  return world.state.player.lives <= 0;
-}
-
 /**
  * Set `world` to the named scene (start, play, action or over; any other name is
  * start) and return the screen to draw over it and the best score to show.
  */
 export function stageShot(name, world) {
-  world.reset();
   if (name !== 'play' && name !== 'action' && name !== 'over') {
-    // Title: the world idles behind the logo, the ship flying its own demo.
+    // Title: the world idles behind the logo, the ship flying its own demo and
+    // the keeper's turrets standing guard.
+    world.reset(false);
     for (let i = 0; i < START_SECONDS / STEP; i += 1) {
       const pilot = autopilot(world.state, 1);
       world.step(STEP, pilot.move, pilot.firing, false, true);
@@ -99,15 +87,37 @@ export function stageShot(name, world) {
     return { screen: SCREEN_TITLE, best: world.state.score };
   }
   if (name === 'over') {
+    // The lantern falls: a careless pilot lets the Hollow feed until the light dies.
+    world.reset(false);
     playForward(world, OVER_LIMIT_SECONDS, 0);
     return { screen: SCREEN_OVER, best: world.state.score };
   }
   if (name === 'action') {
-    // Mid-wave 4, the sky full: the showy pilot holds its ground and lets the
-    // swarm come to it.
-    const over = playUntilWave(world, 4, 10, 2, 120);
-    return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+    // Wave 5, the Warden: three turrets (one a final form), the boss on screen,
+    // the sky full, the light holding.
+    world.stageScene({
+      wave: 5,
+      prisms: 260,
+      turrets: [
+        { kind: 'pulse', x: 380, y: 470, level: 3 },
+        { kind: 'lance', x: 900, y: 470, level: 2 },
+        { kind: 'nova', x: 640, y: 520, level: 1 },
+      ],
+      spawn: 12,
+    });
+    playForward(world, 6, 2);
+    return { screen: SCREEN_PLAY, best: world.state.score };
   }
-  const over = playUntilWave(world, 2, 6, 1, 60);
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  // Play: wave 3, two turrets up, prisms on the field, the light holding.
+  world.stageScene({
+    wave: 3,
+    prisms: 180,
+    turrets: [
+      { kind: 'pulse', x: 420, y: 480, level: 1 },
+      { kind: 'lance', x: 860, y: 480, level: 1 },
+    ],
+    spawn: 9,
+  });
+  playForward(world, 4, 1);
+  return { screen: SCREEN_PLAY, best: world.state.score };
 }

@@ -121,6 +121,31 @@ export function createAudio() {
       setTimeout(() => blip(330, 330, 0.2, 'triangle', 0.22), 190);
       setTimeout(() => blip(262, 196, 0.5, 'triangle', 0.22), 380);
     },
+    build() {
+      blip(440, 880, 0.12, 'square', 0.16);
+      setTimeout(() => blip(660, 990, 0.1, 'square', 0.12), 70);
+    },
+    upgrade() {
+      blip(523, 784, 0.12, 'triangle', 0.2);
+      setTimeout(() => blip(784, 1046, 0.16, 'triangle', 0.2), 90);
+    },
+    rekindle() {
+      blip(392, 1174, 0.3, 'sine', 0.22);
+    },
+    boss() {
+      noise(0.6, 1200, 0.35);
+      blip(110, 55, 0.6, 'sawtooth', 0.25);
+    },
+    lanternHit() {
+      blip(220, 110, 0.25, 'sawtooth', 0.3);
+      noise(0.2, 900, 0.25);
+    },
+    victory() {
+      blip(523, 523, 0.14, 'triangle', 0.22);
+      setTimeout(() => blip(659, 659, 0.14, 'triangle', 0.22), 130);
+      setTimeout(() => blip(784, 784, 0.14, 'triangle', 0.22), 260);
+      setTimeout(() => blip(1046, 1046, 0.4, 'triangle', 0.24), 390);
+    },
     click() {
       blip(1200, 900, 0.05, 'sine', 0.12);
     },

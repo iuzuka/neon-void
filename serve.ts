@@ -1,4 +1,4 @@
-// A tiny static server for playing NEON VOID locally: serves game/ at
+// A tiny static server for playing LUMEN VOID locally: serves game/ at
 // http://localhost:8080 (Node 22, standard library only). Not part of the entry;
 // the game itself needs no server, just a browser opening game/index.html.
 import { createServer } from 'node:http';
@@ -34,5 +34,5 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`NEON VOID at http://localhost:${PORT}`);
+  console.log(`LUMEN VOID at http://localhost:${PORT}`);
 });

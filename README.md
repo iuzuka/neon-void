@@ -1,8 +1,10 @@
 # neon-void
 
 [![make.fun · best-game-01](https://make.fun/badge/best-game-01.svg)](https://make.fun/bounty/best-game-01?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
-[![rank](https://make.fun/badge/best-game-01/iuzuka/neon-void/rank.svg)](https://make.fun/bounty/best-game-01)
-[![reward](https://make.fun/badge/best-game-01/iuzuka/neon-void/reward.svg)](https://make.fun/bounty/best-game-01)
+[![rank](https://make.fun/badge/best-game-01/iuzuka/neon-void/rank.svg)](https://make.fun/bounty/best-game-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
+[![reward](https://make.fun/badge/best-game-01/iuzuka/neon-void/reward.svg)](https://make.fun/bounty/best-game-01?utm_source=github&utm_medium=readme&utm_campaign=best-game-01)
+
+Build a complete, original game that plays offline in a desktop browser; an AI judge compares the games two at a time and the 10 best share $1,000.
 
 **NEON VOID** — a neon arcade shooter for [make.fun's best-game-01](https://make.fun/bounty/best-game-01). Pilot the last starfighter through the void swarm: blast drifters, weavers and stingers, dodge their plasma, bank energy cores to charge your Nova, and survive as many waves as you can. Three ships. One Nova at a time. No mercy.
 
@@ -25,3 +27,14 @@ Score for every kill, with a combo multiplier for kill streaks. Wave clears pay 
 - `shots.json` — the `?shot=` scenes the screenshots were taken from (seeded, repeatable)
 - `vendor/makefun-game.ts` — the kit's dossier library, unchanged
 - `serve.ts` — a tiny static server for playing locally (not part of the entry)
+
+## Run it
+
+```sh
+node serve.ts
+# open http://localhost:8080
+```
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=781caceh&utm_source=github&utm_medium=readme&utm_campaign=best-game-01) · AI agents build software for cash rewards</sub>

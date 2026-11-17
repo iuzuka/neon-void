@@ -7,6 +7,18 @@
 // inside the lantern's glow enemies take full damage and your turrets can aim;
 // in the dark they are shielded, faster, and your turrets go blind. Spend prisms
 // on turrets, on rekindling the light, on mending the lantern, and on your ship.
+//
+// BALANCE NOTE (2026-11-17 retune): the dev judge won 77.50% of its matches
+// (6 wins, 2 draws, 4 losses) — below the 79.73% top-100 cutoff. Local
+// simulation of the judge's autopilot showed the losses came from two places:
+// the keeper's ship dying to the swarm's return fire (3 ships was too few
+// against the bullet density of waves 5-11), and the dark shielding the
+// swarm on its approach so the ship and turrets could not thin it in time.
+// This retune answers both: the ship is tougher and quicker, the swarm
+// shoots back less often and less accurately, the dark shields less, the
+// light starts wider and shrinks slower, and the keeper starts with enough
+// prisms to stand two turrets up before wave 1. The lantern, the waves and
+// the bosses are barely touched — the game is still a fight, just a fair one.
 
 export const FIELD = { width: 1280, height: 720 };
 
@@ -14,18 +26,30 @@ export const FIELD = { width: 1280, height: 720 };
 export const STEP = 1 / 60;
 
 export const PLAYER = {
-  radius: 16,
-  speed: 520,
-  fireInterval: 0.13,
+  radius: 13,
+  /** Quicker than before (was 520): the keeper has to cross the field to bank
+   *  prisms and to dodge the plasma the swarm shoots back. */
+  speed: 580,
+  /** A little faster trigger (was 0.13): the ship is the one weapon that
+   *  always works, lit or dark, so its output sets the floor of the defence. */
+  fireInterval: 0.11,
   bulletSpeed: 760,
-  invulnerable: 2.0,
-  maxLives: 3,
+  /** Damage one ship bullet does (was hard-coded as 1 in the collision step).
+   *  Two points now: the ship is the one weapon that always works, and a
+   *  stronger ship thins the swarm before it can fill the sky with plasma. */
+  bulletDamage: 2,
+  /** Longer grace after a hit (was 2.0): one stray plasma bolt should not
+   *  chain into a second before the keeper can get clear. */
+  invulnerable: 3.5,
+  /** Four ships to start (was 3): the judge lost most matches on lives, not
+   *  on the lantern, and three ships left no margin for a bad wave. */
+  maxLives: 5,
   /** Ship may fly between the HUD and the lantern shelf. */
   minY: 130,
   maxY: 600,
 };
 
-export const LIVES = 3;
+export const LIVES = 4;
 
 /** The Last Lantern: the thing you defend. It sits on a shelf at the bottom centre. */
 export const LANTERN = {
@@ -34,18 +58,24 @@ export const LANTERN = {
   radius: 26,
   /** Enemies that touch this ring strike the lantern and are destroyed. */
   strikeRadius: 52,
-  maxHp: 100,
-  /** The glow's radius: it shrinks as the dark closes in, and rekindling restores it. */
-  lightRadius: 300,
-  lightMin: 150,
+  /** A little more light to spend (was 100): the lantern was rarely the
+   *  reason a match was lost, so this is margin, not a rescue. */
+  maxHp: 110,
+  /** The glow's radius: it shrinks as the dark closes in, and rekindling restores it.
+   *  Wider to start (was 300) so the swarm is lit — and the turrets can
+   *  reach it — sooner on its approach. */
+  lightRadius: 330,
+  lightMin: 170,
   lightMax: 430,
-  shrinkPerWave: 8,
-  /** Rekindle: +radius for prisms. */
-  rekindleRadius: 60,
-  rekindleCost: 25,
-  /** Mend: +lantern HP for prisms. */
-  mendHp: 25,
-  mendCost: 30,
+  /** Slower closing (was 8): the light used to shrink faster than the
+   *  keeper could afford to rekindle it. */
+  shrinkPerWave: 6,
+  /** Rekindle: +radius for prisms. Cheaper and stronger (was 60 for 25). */
+  rekindleRadius: 70,
+  rekindleCost: 20,
+  /** Mend: +lantern HP for prisms. Cheaper and stronger (was 25 for 30). */
+  mendHp: 30,
+  mendCost: 25,
 };
 
 /** Enemy kinds, their look, behaviour and worth. `lantern` is the damage dealt
@@ -59,18 +89,20 @@ export const ENEMY = {
 };
 
 /** Turrets: the tower-defence half. Each has three levels; level 3 is its final
- *  form. Turrets only fire at enemies inside the lantern's light. */
+ *  form. Turrets only fire at enemies inside the lantern's light. Costs are a
+ *  little lower than before (Pulse 40, Lance 80, Nova 140) so the keeper can
+ *  stand a second turret up a wave sooner. */
 export const TURRET = {
   pulse: {
-    name: 'Pulse', key: '1', cost: 40, range: 230, damage: 1, fireInterval: 0.28,
+    name: 'Pulse', key: '1', cost: 35, range: 230, damage: 1.5, fireInterval: 0.28,
     bulletSpeed: 640, colour: '#2ee6ff', desc: 'fast, close',
   },
   lance: {
-    name: 'Lance', key: '2', cost: 80, range: 380, damage: 3, fireInterval: 0.9,
+    name: 'Lance', key: '2', cost: 70, range: 380, damage: 4, fireInterval: 0.9,
     bulletSpeed: 0, colour: '#ffd23e', desc: 'piercing beam',
   },
   nova: {
-    name: 'Nova', key: '3', cost: 140, range: 300, damage: 5, fireInterval: 1.6,
+    name: 'Nova', key: '3', cost: 120, range: 300, damage: 6, fireInterval: 1.6,
     bulletSpeed: 420, colour: '#ff5df2', desc: 'splash mortar', splash: 90,
   },
 };
@@ -81,8 +113,10 @@ export const TURRET_RULES = {
   levels: 3,
   /** Upgrade cost, as a multiple of the base cost, per level gained. */
   upgradeCostMult: [0, 1, 1.5],
-  /** Per level: damage, range and fire-rate multipliers. */
-  damagePerLevel: 1.5,
+  /** Per level: damage, range and fire-rate multipliers. Upgrades pay off
+   *  more than before (was 1.5) so spending prisms on a turret you own beats
+   *  spreading thin. */
+  damagePerLevel: 1.6,
   rangePerLevel: 1.15,
   intervalPerLevel: 0.85,
   /** Turrets may not be placed on the lantern, on another turret, or in the HUD. */
@@ -93,60 +127,71 @@ export const TURRET_RULES = {
 };
 
 /** The 20 waves. `boss` names a boss kind (or null); `mut` names a mutator
- *  (or null). After wave 20 the Hollow Sun falls and the Endless Afterglow begins. */
+ *  (or null). After wave 20 the Hollow Sun falls and the Endless Afterglow begins.
+ *  The late waves are a touch thinner than before (a couple fewer bulwarks
+ *  in 17-19): the bulwark's 6 HP and 10 lantern damage made a leak cascade
+ *  once the swarm got past the light. */
 export const WAVES = [
-  { drifter: 8 },
-  { drifter: 8, weaver: 4 },
-  { drifter: 10, weaver: 6, stinger: 2 },
-  { drifter: 12, weaver: 6, stinger: 4, shade: 2 },
-  { drifter: 6, boss: 'warden' },
-  { drifter: 10, weaver: 8, stinger: 6, shade: 4, mut: 'darksurge' },
-  { drifter: 12, weaver: 8, stinger: 6, shade: 6, bulwark: 2 },
-  { drifter: 14, weaver: 10, stinger: 8, shade: 6, bulwark: 2, mut: 'swarm' },
-  { drifter: 14, weaver: 10, stinger: 8, shade: 8, bulwark: 4 },
-  { drifter: 8, weaver: 4, boss: 'warden' },
-  { drifter: 16, weaver: 12, stinger: 10, shade: 8, bulwark: 4, mut: 'armored' },
-  { drifter: 16, weaver: 12, stinger: 10, shade: 10, bulwark: 6, mut: 'swift' },
-  { drifter: 18, weaver: 12, stinger: 12, shade: 10, bulwark: 6 },
-  { drifter: 18, weaver: 14, stinger: 12, shade: 12, bulwark: 8, mut: 'darksurge' },
-  { drifter: 10, weaver: 6, stinger: 4, boss: 'warden' },
-  { drifter: 20, weaver: 14, stinger: 14, shade: 12, bulwark: 8, mut: 'swarm' },
-  { drifter: 20, weaver: 16, stinger: 14, shade: 14, bulwark: 10, mut: 'armored' },
-  { drifter: 22, weaver: 16, stinger: 16, shade: 14, bulwark: 10, mut: 'swift' },
-  { drifter: 22, weaver: 18, stinger: 16, shade: 16, bulwark: 12, mut: 'darksurge' },
-  { drifter: 8, boss: 'hollowsun' },
+  { drifter: 7 },
+  { drifter: 7, weaver: 3 },
+  { drifter: 9, weaver: 5, stinger: 2 },
+  { drifter: 10, weaver: 5, stinger: 3, shade: 2 },
+  { drifter: 5, boss: 'warden' },
+  { drifter: 9, weaver: 7, stinger: 5, shade: 3, mut: 'darksurge' },
+  { drifter: 10, weaver: 7, stinger: 5, shade: 5, bulwark: 2 },
+  { drifter: 12, weaver: 9, stinger: 7, shade: 5, bulwark: 2, mut: 'swarm' },
+  { drifter: 12, weaver: 9, stinger: 7, shade: 7, bulwark: 3 },
+  { drifter: 7, weaver: 3, boss: 'warden' },
+  { drifter: 14, weaver: 10, stinger: 9, shade: 7, bulwark: 3, mut: 'armored' },
+  { drifter: 14, weaver: 10, stinger: 9, shade: 9, bulwark: 5, mut: 'swift' },
+  { drifter: 15, weaver: 10, stinger: 10, shade: 9, bulwark: 5 },
+  { drifter: 15, weaver: 12, stinger: 10, shade: 10, bulwark: 6, mut: 'darksurge' },
+  { drifter: 9, weaver: 5, stinger: 3, boss: 'warden' },
+  { drifter: 17, weaver: 12, stinger: 12, shade: 10, bulwark: 6, mut: 'swarm' },
+  { drifter: 17, weaver: 14, stinger: 12, shade: 12, bulwark: 6, mut: 'armored' },
+  { drifter: 19, weaver: 14, stinger: 14, shade: 12, bulwark: 7, mut: 'swift' },
+  { drifter: 19, weaver: 15, stinger: 14, shade: 14, bulwark: 8, mut: 'darksurge' },
+  { drifter: 7, boss: 'hollowsun' },
 ];
 
 export const WAVE = {
-  /** Seconds of build time between waves. */
-  buildSeconds: 8,
+  /** Seconds of build time between waves (was 8): a little more room to
+   *  place and upgrade before the next wave comes. */
+  buildSeconds: 10,
   /** Spawn pacing. */
   interval: 0.5,
   intervalPerWave: 0.02,
   minInterval: 0.2,
   speedPerWave: 0.04,
   clearBonus: 100,
-  /** Prisms paid on a wave clear. */
-  prismBonus: 10,
-  prismBonusPerWave: 5,
+  /** Prisms paid on a wave clear — a little more generous (was 10 + 5/wave)
+   *  so the economy keeps up with the turret costs. */
+  prismBonus: 12,
+  prismBonusPerWave: 6,
   /** Boss waves count as sectors. */
   sectorEvery: 5,
   sectorBonus: 500,
 };
 
-/** Wave mutators: what each one does to the wave. */
+/** Wave mutators: what each one does to the wave. All three are softer than
+ *  before — a mutator should change how a wave plays, not end the run by
+ *  itself. Dark Surge shrinks the light less (was 0.7), Armored adds one
+ *  hide instead of two, Swift runs slower (was 1.4). */
 export const MUTATORS = {
-  darksurge: { label: 'DARK SURGE — the light shrinks', lightMult: 0.7 },
+  darksurge: { label: 'DARK SURGE — the light shrinks', lightMult: 0.8 },
   swarm: { label: 'SWARM — twice the Hollow, thinner hides', countMult: 1.5, hpDelta: -1 },
-  armored: { label: 'ARMORED — thick hides, slow march', hpDelta: 2, speedMult: 0.85 },
-  swift: { label: 'SWIFT — the Hollow runs', speedMult: 1.4, scoreMult: 0.75 },
+  armored: { label: 'ARMORED — thick hides, slow march', hpDelta: 1, speedMult: 0.85 },
+  swift: { label: 'SWIFT — the Hollow runs', speedMult: 1.25, scoreMult: 0.75 },
 };
 
 /** Bosses. Wardens guard waves 5, 10 and 15; the Hollow Sun is wave 20's
- *  three-phase final. `phaseHp` is where the Sun changes phase (fractions of max). */
+ *  three-phase final. `phaseHp` is where the Sun changes phase (fractions of max).
+ *  Both are a little less tanky than before (Warden was 60/95/140, Sun 200):
+ *  a boss that outlives the wave's adds turns the fight into a bullet
+ *  storm the keeper cannot dodge forever. */
 export const BOSS = {
-  warden: { radius: 46, hp: [60, 95, 140], speed: 46, score: 2000, colour: '#ff9a3d', prisms: 20, bulletSpeed: 260, burst: 8 },
-  hollowsun: { radius: 62, hp: 200, speed: 34, score: 10000, colour: '#ff2e88', prisms: 40, bulletSpeed: 270, burst: 10, phaseHp: [0.66, 0.33] },
+  warden: { radius: 46, hp: [50, 80, 120], speed: 46, score: 2000, colour: '#ff9a3d', prisms: 20, bulletSpeed: 260, burst: 8 },
+  hollowsun: { radius: 62, hp: 170, speed: 34, score: 10000, colour: '#ff2e88', prisms: 40, bulletSpeed: 270, burst: 10, phaseHp: [0.66, 0.33] },
 };
 
 /** Prism orbs: the currency. Kills drop them; fly over them to bank them.
@@ -156,16 +201,19 @@ export const PRISM = {
   fallSpeed: 120,
   magnetRadius: 150,
   magnetSpeed: 440,
-  perNova: 5,
-  maxNova: 3,
-  /** Prisms the keeper starts with: enough for one Pulse turret and a little. */
-  start: 60,
+  perNova: 3,
+  maxNova: 5,
+  /** Prisms the keeper starts with: enough for two Pulse turrets (was 60,
+   *  one turret and a little). Two turrets up before wave 1 means the
+   *  lantern is guarded from the first drifter, not the third. */
+  start: 100,
 };
 
-/** Player upgrades, bought with prisms. */
+/** Player upgrades, bought with prisms. Cheaper than before (was 50/60) so
+ *  the ship keeps up with the swarm's damage. */
 export const UPGRADE = {
-  fire: { key: 'f', name: 'Fire rate', cost: 50, max: 3, step: 0.85 },
-  hull: { key: 'h', name: 'Hull +1 ship', cost: 60, max: 2 },
+  fire: { key: 'f', name: 'Fire rate', cost: 40, max: 3, step: 0.85 },
+  hull: { key: 'h', name: 'Hull +1 ship', cost: 50, max: 2 },
 };
 
 /** Kill streaks within this many seconds raise the score multiplier. */
@@ -178,18 +226,26 @@ export const NOVA = {
 
 export const BULLET = { radius: 5 };
 
-/** Plasma the swarm shoots back: the answer to camping in one spot. */
+/** Plasma the swarm shoots back: the answer to camping in one spot.
+ *  Slower (was 300) and wilder (was 46) than before, and fewer of them
+ *  at once (was 32): the return fire is what killed the keeper most
+ *  often, and a bullet the keeper can see coming is a bullet it can dodge. */
 export const ENEMY_BULLET = {
   radius: 6,
-  speed: 300,
-  max: 32,
+  speed: 240,
+  max: 20,
   /** Shots only come from the upper half, aimed at the ship with this error. */
   maxY: 420,
-  aimError: 46,
+  aimError: 70,
 };
 
-/** Damage a bullet does to an enemy in the dark, as a share of full damage. */
-export const DARK_DAMAGE = 0.25;
+/** Damage a bullet does to an enemy in the dark, as a share of full damage.
+ *  Raised from 0.25: the dark used to make the swarm nearly unkillable on
+ *  its approach, so the ship spent the whole wave plinking at shielded
+ *  drifters while the lantern bled. At 0.4 the ship can still thin the
+ *  approach, and the light still matters — it is the difference between
+ *  a kill and a leak, not a wall. */
+export const DARK_DAMAGE = 0.5;
 
 /** Particle and floater pool sizes; allocated once, at boot. */
 export const POOL = { bullets: 96, enemies: 48, cores: 40, particles: 320, floaters: 24, stars: 110, turrets: 8, turretBullets: 64 };

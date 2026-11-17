@@ -1,12 +1,12 @@
-// LUMEN VOID boot and the one loop: input is read every frame, the world advances in
-// fixed 1/60 s steps (several in a slow frame, none in a fast one), and the renderer
-// paints what is there. The game moves between five screens: title, play, paused,
-// victory and game over.
+// LUMEN VOID boot and the one loop: input is read every frame, the world
+// advances in fixed 1/60 s steps (several in a slow frame, none in a fast
+// one), and the renderer paints what is there. The game moves between five
+// screens: title, play, paused, victory and game over.
 //
-// ?seed=N fixes the spawn pattern. ?shot=start|play|action|over (with &seed=N) stages
-// that scene instead of running the loop, paints it twice and sets window.__shotReady
-// for a screenshot.
-import { BEST_KEY, FIELD, PLAYER, STEP } from './config.js';
+// ?seed=N fixes the spawn pattern. ?shot=start|play|action|over (with
+// &seed=N) stages that scene instead of running the loop, paints it twice
+// and sets window.__shotReady for a screenshot.
+import { BEST_KEY, FIELD, PLAYER, STEP, UPGRADE } from './config.js';
 import { createRandom } from './random.js';
 import { createAudio } from './audio.js';
 import {
@@ -42,6 +42,8 @@ const world = createWorld(createRandom(seed));
 const renderer = createRenderer(canvas);
 const audio = createAudio();
 
+// The best score lives in local storage so it survives a reload. If storage
+// is off (a private window), it just lasts this visit.
 function readBest() {
   try {
     return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
@@ -54,10 +56,12 @@ function saveBest(value) {
   try {
     window.localStorage.setItem(BEST_KEY, String(value));
   } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
+    // Storage can be off: the best score then lasts this visit only.
   }
 }
 
+// Stage a screenshot scene: paint it twice (so the first frame's layout has
+// settled) and then flag it ready for the screenshot tool.
 function runShot(name) {
   const scene = stageShot(name, world);
   let painted = 0;
@@ -80,7 +84,8 @@ function runGame() {
   let laserTimer = 0;
   let novaQueued = false;
 
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
+  // Screen readers (and anyone watching the page's text) hear the screen
+  // changes and each hit.
   function announce(message) {
     status.textContent = message;
   }
@@ -119,7 +124,8 @@ function runGame() {
     announce(`Victory. The Hollow Sun has fallen. Score ${world.state.score}.`);
   }
 
-  /** Keyboard first; else the ship steers toward the pointer. */
+  // Where the ship steers: the keyboard first; otherwise it chases the
+  // pointer, slowing as it nears it, and stops within 12 px of it.
   function movement() {
     const kb = input.direction();
     if (kb.x !== 0 || kb.y !== 0) return kb;
@@ -133,7 +139,8 @@ function runGame() {
     return { x: (dx / dist) * s, y: (dy / dist) * s };
   }
 
-  /** A build-bar item, by its key: select a turret kind, or buy an action. */
+  // A build-bar item, by its key: pick a turret kind to place, or buy one
+  // of the lantern/ship actions. Keys 1-3 toggle the turret choice.
   function buildBarAction(key) {
     const st = world.state;
     if (key === '1' || key === '2' || key === '3') {
@@ -148,7 +155,8 @@ function runGame() {
     else if (key === 'h' && world.upgradeHull()) { audio.upgrade(); announce('Hull reinforced. One more ship.'); }
   }
 
-  /** A click on the field: place the chosen turret, or select one to upgrade. */
+  // A click on the field: place the chosen turret where clicked, or (with
+  // nothing chosen) select the turret under the click so U can upgrade it.
   function fieldClick(point) {
     const st = world.state;
     if (st.buildChoice) {
@@ -165,11 +173,13 @@ function runGame() {
     if (turret) announce(`${turret.kind} turret selected. Press U to upgrade it.`);
   }
 
+  // A click anywhere: on the build bar it picks that bar item; on the field
+  // it places or selects a turret. A click on the bar's empty right side
+  // does nothing.
   function handleClick() {
     const point = input.takeClick();
     if (!point || screen !== SCREEN_PLAY) return;
     if (point.y >= BUILD_BAR_Y) {
-      // The build bar: which item did the click land on?
       const index = Math.floor((point.x - BUILD_BAR_X0) / (BUILD_BAR_W + BUILD_BAR_GAP));
       if (index >= 0 && index < BUILD_BAR_KEYS.length) {
         const itemX = BUILD_BAR_X0 + index * (BUILD_BAR_W + BUILD_BAR_GAP);
@@ -178,12 +188,15 @@ function runGame() {
           return;
         }
       }
-      // A click on the bar's empty right side selects nothing.
       return;
     }
     fieldClick(point);
   }
 
+  // Drain the queued input actions for this frame: mute, the Nova, the
+  // build keys (while playing), upgrading the selected turret, and the
+  // screen changes — start on confirm, endless after a win, fresh game
+  // with R on the victory screen, pause and resume.
   function handleActions() {
     const actions = input.takeActions();
     if (actions & ACTION_MUTE) {
@@ -191,7 +204,6 @@ function runGame() {
       announce(muted ? 'Sound off.' : 'Sound on.');
     }
     if (actions & ACTION_NOVA) novaQueued = true;
-    // Build keys work while playing.
     if (screen === SCREEN_PLAY) {
       if (actions & ACTION_BUILD_PULSE) buildBarAction('1');
       if (actions & ACTION_BUILD_LANCE) buildBarAction('2');
@@ -228,10 +240,11 @@ function runGame() {
     handleClick();
   }
 
+  // One fixed world step, plus its sounds and announcements. On the title
+  // screen the world idles as a live demo (the ship weaves and fires on its
+  // own). The victory screen is frozen — the Afterglow resumes from there.
   function step() {
     if (screen === SCREEN_TITLE) {
-      // The title idles over a live demo: the ship weaves and fires on its own,
-      // and the keeper's turrets stand guard.
       const sway = Math.sin(world.state.time * 0.9) * 0.6;
       world.step(STEP, { x: sway, y: 0 }, true, false, true);
       return;
@@ -246,7 +259,9 @@ function runGame() {
     if (firing) {
       laserTimer -= STEP;
       if (laserTimer <= 0) {
-        laserTimer = PLAYER.fireInterval;
+        // The laser sound follows the ship's real fire rate, which quickens
+        // with its fire level — not just the base interval.
+        laserTimer = PLAYER.fireInterval * Math.pow(UPGRADE.fire.step, world.state.player.fireLevel);
         audio.laser();
       }
     } else {
@@ -270,6 +285,9 @@ function runGame() {
     else if (events & EVENT_OVER) endGame();
   }
 
+  // The frame loop: bank real time (capped), run as many fixed steps as it
+  // covers, then paint. Pausing or a win/over screen drains the bank so no
+  // steps run until play resumes.
   function frame(now) {
     requestAnimationFrame(frame);
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);

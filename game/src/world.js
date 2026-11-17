@@ -52,7 +52,7 @@ function freshPlayer() {
     lives: LIVES,
     invuln: 0,
     fireTimer: 0,
-    nova: 1,
+    nova: 2,
     coresBanked: 0,
     thrust: 0,
     fireLevel: 0,
@@ -126,6 +126,9 @@ export function createWorld(random) {
     flash: 0,
     banner: null,
     kills: 0,
+    /** Seconds until the next free Nova charge (the Nova slowly recharges
+     *  on its own, so the keeper always has a panic button coming). */
+    novaTimer: 0,
     won: false,
     endless: false,
     turretsBuilt: 0,
@@ -177,6 +180,9 @@ export function createWorld(random) {
     return enemy.isBoss || inLight(enemy.x, enemy.y);
   }
 
+  // Build the spawn queue for a wave: one entry per enemy in the wave
+  // table, with the mutator's count multiplier applied, then shuffled so
+  // the kinds arrive mixed instead of in blocks.
   function buildSpawnQueue(wave) {
     const def = waveDef(wave);
     const queue = [];
@@ -187,7 +193,6 @@ export function createWorld(random) {
       if (mut && mut.countMult) count = Math.round(count * mut.countMult);
       for (let i = 0; i < count; i += 1) queue.push(kind);
     }
-    // Shuffle so the kinds arrive mixed, not in blocks.
     for (let i = queue.length - 1; i > 0; i -= 1) {
       const j = Math.floor(random() * (i + 1));
       const tmp = queue[i];
@@ -197,11 +202,13 @@ export function createWorld(random) {
     return queue;
   }
 
+  // Which mutator (if any) a wave carries.
   function mutatorFor(wave) {
-    const def = waveDef(wave);
-    return def.mut || null;
+    return waveDef(wave).mut || null;
   }
 
+  // Bend a fresh enemy to the wave's mutator: tougher, faster, or worth
+  // more, as the mutator says. Health never drops below 1.
   function applyMutatorTo(enemy) {
     const mut = state.mutator ? MUTATORS[state.mutator] : null;
     if (!mut) return;
@@ -210,6 +217,10 @@ export function createWorld(random) {
     if (mut.scoreMult) enemy.score = Math.round(enemy.score * mut.scoreMult);
   }
 
+  // Bring one enemy into the field at the top, at a random x, drifting down
+  // with a little random sway and spin. Enemies get faster as the waves go
+  // on. Each kind shoots back on its own interval — the return fire is what
+  // kills the keeper most often, so the intervals are generous.
   function spawnEnemy(kind) {
     if (state.enemies.length >= POOL.enemies) return;
     const def = ENEMY[kind];
@@ -229,7 +240,7 @@ export function createWorld(random) {
       rotation: random() * TAU,
       spin: (random() - 0.5) * 2.4,
       fireTimer: 0.5 + random() * 1.0,
-      shotInterval: kind === 'drifter' ? 3.4 : kind === 'weaver' ? 2.4 : kind === 'stinger' ? 2.0 : kind === 'shade' ? 2.8 : 4.5,
+      shotInterval: kind === 'drifter' ? 6.0 : kind === 'weaver' ? 4.0 : kind === 'stinger' ? 3.5 : kind === 'shade' ? 4.5 : 7.0,
       active: true,
       isBoss: false,
     };
@@ -239,6 +250,10 @@ export function createWorld(random) {
     state.waveSpawned += 1;
   }
 
+  // Bring a boss in at the top centre. The Warden grows tougher each time
+  // it returns (waves 5, 10, 15 pick the next of its three health pools);
+  // the Hollow Sun has a single pool. The boss becomes the state's boss so
+  // the HUD and the phase logic can find it.
   function spawnBoss(kind, wave) {
     const def = BOSS[kind];
     const bossIndex = kind === 'warden' ? (wave <= 5 ? 0 : wave <= 10 ? 1 : 2) : 0;
@@ -269,6 +284,8 @@ export function createWorld(random) {
     return boss;
   }
 
+  // Scatter prism pickups around a point (the pool caps how many can exist
+  // at once). They drift down and the keeper banks them by flying over them.
   function dropPrisms(x, y, count) {
     for (let i = 0; i < count; i += 1) {
       if (state.cores.length >= POOL.cores) return;
@@ -283,6 +300,7 @@ export function createWorld(random) {
     }
   }
 
+  // Add points, scaled by the current combo multiplier, and float the gain.
   function award(base, x, y) {
     const points = Math.round(base * state.multiplier);
     state.score += points;
@@ -290,6 +308,8 @@ export function createWorld(random) {
     return points;
   }
 
+  // Count a kill toward the combo: the chain grows and the multiplier with
+  // it (capped), and the combo window refreshes.
   function registerKill() {
     state.kills += 1;
     state.combo += 1;
@@ -297,6 +317,9 @@ export function createWorld(random) {
     state.multiplier = Math.min(state.combo, COMBO.max);
   }
 
+  // Remove an enemy from the field. A boss pays out its prisms and score,
+  // banners its fall, and shakes the screen. A Nova kill pays half score
+  // and no combo; a normal kill feeds the combo and drops prisms.
   function killEnemy(enemy, byNova) {
     enemy.active = false;
     addParticles(enemy.x, enemy.y, enemy.colour, 14, 260);
@@ -320,6 +343,10 @@ export function createWorld(random) {
     }
   }
 
+  // Hurt an enemy. Light is the only real weapon: inside the light an
+  // enemy takes the full hit, but out in the dark it is shielded and takes
+  // only a fraction. A shielded hit that does not kill floats a SHIELDED
+  // note so the keeper can see why its shots are weak.
   function damageEnemy(enemy, amount, x, y) {
     const lit = isLit(enemy);
     const dealt = lit ? amount : amount * DARK_DAMAGE;
@@ -331,6 +358,9 @@ export function createWorld(random) {
     if (enemy.hp <= 0) killEnemy(enemy, false);
   }
 
+  // Open a wave: set its mutator, build the shuffled spawn queue, and
+  // banner it. A boss wave brings the boss in at once and names it; a
+  // normal wave just announces the Hollow is coming.
   function startWave() {
     const def = waveDef(state.wave);
     state.mutator = def.mut || null;
@@ -352,6 +382,10 @@ export function createWorld(random) {
     }
   }
 
+  // Close a wave: pay the clear bonus (score and prisms), and every few
+  // waves pay a sector bonus too. Clearing wave 20 wins the game — unless
+  // endless mode is on, in which case the waves keep coming. Otherwise the
+  // next wave opens with a build phase.
   function clearWave() {
     const bonus = WAVE.clearBonus * state.wave;
     const prisms = WAVE.prismBonus + WAVE.prismBonusPerWave * state.wave;
@@ -378,6 +412,9 @@ export function createWorld(random) {
     return events;
   }
 
+  // An enemy reaches the lantern and feeds on it: the light loses health
+  // (how much depends on the kind), the lantern flickers, and the feeder is
+  // consumed. If the light hits zero, the game is over.
   function lanternStrike(enemy) {
     const def = ENEMY[enemy.kind] || { lantern: 5 };
     state.lantern.hp -= def.lantern;
@@ -394,6 +431,8 @@ export function createWorld(random) {
     return EVENT_LANTERN_HIT;
   }
 
+  // The keeper is hit: lose a life, gain a grace period, and lose the
+  // combo. If that was the last life, the game is over.
   function hitPlayer() {
     const player = state.player;
     player.lives -= 1;
@@ -409,29 +448,37 @@ export function createWorld(random) {
   }
 
   // ---- turrets ----
+  // A turret's effective numbers at a given level: each level multiplies the
+  // base range, damage and fire interval by the per-level factors, so a
+  // max-level turret is a genuinely different weapon from a level-1 one.
   function turretLevelStats(kind, level) {
     const def = TURRET[kind];
-    const lv = level - 1;
+    const steps = level - 1;
     return {
-      range: def.range * Math.pow(TURRET_RULES.rangePerLevel, lv),
-      damage: def.damage * Math.pow(TURRET_RULES.damagePerLevel, lv),
-      interval: def.fireInterval * Math.pow(TURRET_RULES.intervalPerLevel, lv),
+      range: def.range * Math.pow(TURRET_RULES.rangePerLevel, steps),
+      damage: def.damage * Math.pow(TURRET_RULES.damagePerLevel, steps),
+      interval: def.fireInterval * Math.pow(TURRET_RULES.intervalPerLevel, steps),
     };
   }
 
+  // Build a turret. The spot must be inside the build band, clear of the
+  // lantern and clear of every other turret, and the keeper must afford it.
+  // Returns true only when the turret actually goes up.
   function placeTurret(kind, x, y) {
     const def = TURRET[kind];
     if (!def) return false;
     if (state.turrets.length >= TURRET_RULES.maxCount) return false;
     if (state.prisms < def.cost) return false;
     if (y < TURRET_RULES.minY || y > TURRET_RULES.maxY) return false;
-    const dlx = x - state.lantern.x;
-    const dly = y - state.lantern.y;
-    if (dlx * dlx + dly * dly < TURRET_RULES.lanternClear * TURRET_RULES.lanternClear) return false;
-    for (const t of state.turrets) {
-      const dx = x - t.x;
-      const dy = y - t.y;
-      if (dx * dx + dy * dy < TURRET_RULES.turretClear * TURRET_RULES.turretClear) return false;
+    const toLanternX = x - state.lantern.x;
+    const toLanternY = y - state.lantern.y;
+    const lanternClearSq = TURRET_RULES.lanternClear * TURRET_RULES.lanternClear;
+    if (toLanternX * toLanternX + toLanternY * toLanternY < lanternClearSq) return false;
+    const turretClearSq = TURRET_RULES.turretClear * TURRET_RULES.turretClear;
+    for (const other of state.turrets) {
+      const dx = x - other.x;
+      const dy = y - other.y;
+      if (dx * dx + dy * dy < turretClearSq) return false;
     }
     state.prisms -= def.cost;
     state.turrets.push({
@@ -443,15 +490,18 @@ export function createWorld(random) {
     return true;
   }
 
+  // Pick the turret nearest a point (within 34 px) as the selected one, so
+  // the next upgrade lands on it. Returns the turret, or null if none is
+  // close enough.
   function selectTurretAt(x, y) {
     let best = null;
-    let bestD = 34 * 34;
+    let bestDistSq = 34 * 34;
     for (const t of state.turrets) {
       const dx = x - t.x;
       const dy = y - t.y;
-      const d = dx * dx + dy * dy;
-      if (d < bestD) {
-        bestD = d;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
         best = t;
       }
     }
@@ -459,6 +509,9 @@ export function createWorld(random) {
     return best;
   }
 
+  // Raise the selected turret one level. The price is the base cost times
+  // the multiplier for its current level, so each level costs more than the
+  // last. At the top level the turret reaches its final form.
   function upgradeSelected() {
     const t = state.selectedTurret;
     if (!t || t.level >= TURRET_RULES.levels) return false;
@@ -467,7 +520,8 @@ export function createWorld(random) {
     state.prisms -= cost;
     t.level += 1;
     addParticles(t.x, t.y, TURRET[t.kind].colour, 18, 240);
-    addFloater(t.x, t.y - 26, t.level >= TURRET_RULES.levels ? 'FINAL FORM' : `LEVEL ${t.level}`, '#ffd23e');
+    const label = t.level >= TURRET_RULES.levels ? 'FINAL FORM' : `LEVEL ${t.level}`;
+    addFloater(t.x, t.y - 26, label, '#ffd23e');
     return true;
   }
 
@@ -514,7 +568,12 @@ export function createWorld(random) {
     return true;
   }
 
-  // ---- combat steps ----
+  // Move and fire the keeper's ship for one step. The ship stays inside the
+  // field (and above its floor), leaves a thrust trail when it moves, and
+  // fires a three-shot fan straight up — faster as its fire level grows.
+  // Spending a Nova is the panic button: it flashes the screen, kills every
+  // ordinary enemy on the field, wounds a boss by 50, and clears every
+  // plasma bolt in the air.
   function stepPlayer(dt, move, firing, useNova, attract) {
     const player = state.player;
     if (player.invuln > 0) player.invuln -= dt;
@@ -563,37 +622,45 @@ export function createWorld(random) {
     return 0;
   }
 
+  // What a turret shoots at: a boss first (the biggest threat, if a lit
+  // one is in range), otherwise the nearest lit enemy in range. Turrets
+  // can only see what the light touches — anything out in the dark is
+  // invisible to them, which is why the light radius matters so much.
   function nearestLitTarget(turret, stats) {
-    // Turrets focus a boss first — the big threat — then the nearest lit enemy.
+    const rangeSq = stats.range * stats.range;
     let boss = null;
-    let bossD = stats.range * stats.range;
+    let bossDistSq = rangeSq;
     for (const e of state.enemies) {
       if (!e.active || !e.isBoss || !isLit(e)) continue;
       const dx = e.x - turret.x;
       const dy = e.y - turret.y;
-      const d = dx * dx + dy * dy;
-      if (d < bossD) {
-        bossD = d;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < bossDistSq) {
+        bossDistSq = distSq;
         boss = e;
       }
     }
     if (boss) return boss;
     let best = null;
-    let bestD = stats.range * stats.range;
+    let bestDistSq = rangeSq;
     for (const e of state.enemies) {
-      if (!e.active) continue;
-      if (!isLit(e)) continue;
+      if (!e.active || !isLit(e)) continue;
       const dx = e.x - turret.x;
       const dy = e.y - turret.y;
-      const d = dx * dx + dy * dy;
-      if (d < bestD) {
-        bestD = d;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
         best = e;
       }
     }
     return best;
   }
 
+  // Run every turret for one step: aim at its target (or sweep slowly when
+  // it has none), then fire when the timer is up. Each kind fires
+  // differently — the lance cuts a piercing beam through everything lit
+  // along its line, the nova lobs a splash shell, and the pulse sprays a
+  // three-shot fan.
   function stepTurrets(dt) {
     for (const t of state.turrets) {
       const stats = turretLevelStats(t.kind, t.level);
@@ -609,27 +676,28 @@ export function createWorld(random) {
       t.fireTimer = stats.interval;
       const def = TURRET[t.kind];
       if (t.kind === 'lance') {
-        // Piercing beam: every enemy near the line from the turret to the
-        // farthest lit enemy in that direction takes the hit.
         const dx = target.x - t.x;
         const dy = target.y - t.y;
         const len = Math.hypot(dx, dy) || 1;
         const nx = dx / len;
         const ny = dy / len;
-        state.beams.push({ x: t.x, y: t.y, nx, ny, len: Math.min(len, stats.range), life: 0.14, max: 0.14, colour: def.colour });
+        const reach = Math.min(len, stats.range);
+        state.beams.push({ x: t.x, y: t.y, nx, ny, len: reach, life: 0.14, max: 0.14, colour: def.colour });
         for (const e of state.enemies) {
           if (!e.active || !isLit(e)) continue;
           const ex = e.x - t.x;
           const ey = e.y - t.y;
           const along = ex * nx + ey * ny;
-          if (along < 0 || along > Math.min(len, stats.range) + e.radius) continue;
+          if (along < 0 || along > reach + e.radius) continue;
           const perp = Math.abs(ex * ny - ey * nx);
           if (perp < e.radius + 14) damageEnemy(e, stats.damage, e.x, e.y);
         }
       } else if (t.kind === 'nova') {
+        const dist = Math.hypot(target.x - t.x, target.y - t.y) || 1;
         state.turretBullets.push({
-          x: t.x, y: t.y - 10, vx: (target.x - t.x) / (Math.hypot(target.x - t.x, target.y - t.y) || 1) * def.bulletSpeed,
-          vy: (target.y - t.y) / (Math.hypot(target.x - t.x, target.y - t.y) || 1) * def.bulletSpeed,
+          x: t.x, y: t.y - 10,
+          vx: ((target.x - t.x) / dist) * def.bulletSpeed,
+          vy: ((target.y - t.y) / dist) * def.bulletSpeed,
           radius: 7, active: true, kind: 'nova', damage: stats.damage, splash: TURRET.nova.splash,
         });
       } else {
@@ -646,6 +714,10 @@ export function createWorld(random) {
     }
   }
 
+  // Move every turret shot for one step and resolve its hits. A shot that
+  // leaves the field dies. A nova shell bursts on impact, damaging
+  // everything inside its splash radius; any other shot just hurts the one
+  // enemy it touches. Spent shots are swept out of the list.
   function stepTurretBullets(dt) {
     for (const b of state.turretBullets) {
       if (!b.active) continue;
@@ -659,8 +731,8 @@ export function createWorld(random) {
         if (!e.active) continue;
         const dx = b.x - e.x;
         const dy = b.y - e.y;
-        const r = b.radius + e.radius;
-        if (dx * dx + dy * dy < r * r) {
+        const hitRadius = b.radius + e.radius;
+        if (dx * dx + dy * dy < hitRadius * hitRadius) {
           b.active = false;
           if (b.kind === 'nova' && b.splash > 0) {
             addParticles(b.x, b.y, '#ff5df2', 16, 280);
@@ -680,6 +752,12 @@ export function createWorld(random) {
     state.turretBullets = state.turretBullets.filter((b) => b.active);
   }
 
+  // A boss's attack. The Warden fires one pattern; the Hollow Sun has
+  // three phases, driven by its remaining health — it cracks into a
+  // spiral of fire, then burns faster as it dies, and each phase change
+  // banners the shift, shakes the screen, and calls in four shades.
+  // Phase 1 is a rotating spiral ring; the other phases are a radial burst
+  // plus a three-shot spread aimed at the ship.
   function bossShoot(boss, dt) {
     const def = BOSS[boss.kind];
     boss.fireTimer -= dt;
@@ -696,13 +774,12 @@ export function createWorld(random) {
       for (let i = 0; i < 4; i += 1) spawnEnemy('shade');
     }
     boss.fireTimer = boss.shotInterval * (phase === 2 ? 0.6 : phase === 1 ? 0.8 : 1);
-    const n = def.burst + phase * 4;
+    const count = def.burst + phase * 4;
     const player = state.player;
     if (phase === 1) {
-      // Spiral: a rotating ring.
       const base = boss.phase * 0.7;
-      for (let i = 0; i < n; i += 1) {
-        const a = base + (i / n) * TAU;
+      for (let i = 0; i < count; i += 1) {
+        const a = base + (i / count) * TAU;
         state.enemyBullets.push({
           x: boss.x, y: boss.y + boss.radius,
           vx: Math.cos(a) * def.bulletSpeed, vy: Math.sin(a) * def.bulletSpeed,
@@ -710,9 +787,8 @@ export function createWorld(random) {
         });
       }
     } else {
-      // Radial burst, plus an aimed spread at the ship.
-      for (let i = 0; i < n; i += 1) {
-        const a = (i / n) * TAU + boss.phase * 0.3;
+      for (let i = 0; i < count; i += 1) {
+        const a = (i / count) * TAU + boss.phase * 0.3;
         state.enemyBullets.push({
           x: boss.x, y: boss.y + boss.radius,
           vx: Math.cos(a) * def.bulletSpeed, vy: Math.sin(a) * def.bulletSpeed,
@@ -736,6 +812,11 @@ export function createWorld(random) {
     }
   }
 
+  // Move every enemy for one step. A boss drifts side to side across the
+  // top and shoots. Everything else seeks the lantern, weaving as it comes
+  // — faster out in the dark (shades fastest of all) — and a stinger also
+  // chases the ship sideways. Any enemy in the upper field shoots back at
+  // the ship, with a wide aim error, on its own interval.
   function stepEnemies(dt, attract) {
     const player = state.player;
     const lx = state.lantern.x;
@@ -751,7 +832,6 @@ export function createWorld(random) {
         bossShoot(enemy, dt);
         continue;
       }
-      // The Hollow seeks the lantern, weaving as it comes.
       const dx = lx - enemy.x;
       const dy = ly - enemy.y;
       const dist = Math.hypot(dx, dy) || 1;
@@ -768,7 +848,6 @@ export function createWorld(random) {
         enemy.x += Math.max(-1, Math.min(1, pdx / 60)) * 120 * dt;
       }
       if (enemy.y > FIELD.height + 40) enemy.active = false;
-      // Every kind shoots back at the ship when it is in the upper field.
       if (enemy.y > 0 && enemy.y < ENEMY_BULLET.maxY) {
         enemy.fireTimer -= dt;
         if (enemy.fireTimer <= 0 && state.enemyBullets.length < ENEMY_BULLET.max) {
@@ -791,6 +870,8 @@ export function createWorld(random) {
     state.enemies = state.enemies.filter((e) => e.active);
   }
 
+  // Fly the swarm's plasma for one step. A bolt that leaves the field
+  // dies; the rest are swept out of the list.
   function stepEnemyBullets(dt) {
     for (const bullet of state.enemyBullets) {
       if (!bullet.active) continue;
@@ -803,6 +884,8 @@ export function createWorld(random) {
     state.enemyBullets = state.enemyBullets.filter((b) => b.active);
   }
 
+  // Fly the keeper's shots for one step. They only travel up (and
+  // sideways), so anything above the top or past a side edge dies.
   function stepBullets(dt) {
     for (const bullet of state.bullets) {
       if (!bullet.active) continue;
@@ -813,6 +896,10 @@ export function createWorld(random) {
     state.bullets = state.bullets.filter((b) => b.active);
   }
 
+  // Drift the prism pickups for one step. A prism close to the ship is
+  // pulled in by the magnet; the rest fall. Flying over one banks it, and
+  // every few banked prisms earn a Nova charge (up to the max). A prism
+  // that falls off the bottom is lost.
   function stepCores(dt) {
     const player = state.player;
     for (const core of state.cores) {
@@ -843,6 +930,12 @@ export function createWorld(random) {
     state.cores = state.cores.filter((c) => c.active);
   }
 
+  // Resolve every collision for one step, and return the events it caused.
+  // Ship shots hurt whatever they touch. If the keeper is not invulnerable,
+  // an enemy that rams it (or a plasma bolt that reaches it) costs a life —
+  // but only one hit per step, so a single frame can never take two lives.
+  // And the Hollow feeds on the lantern: any enemy that reaches it strikes
+  // it. (In attract/demo mode nothing hurts the keeper or the lantern.)
   function collide(attract) {
     const player = state.player;
     let events = 0;
@@ -852,10 +945,10 @@ export function createWorld(random) {
         if (!enemy.active) continue;
         const dx = bullet.x - enemy.x;
         const dy = bullet.y - enemy.y;
-        const r = bullet.radius + enemy.radius;
-        if (dx * dx + dy * dy < r * r) {
+        const hitRadius = bullet.radius + enemy.radius;
+        if (dx * dx + dy * dy < hitRadius * hitRadius) {
           bullet.active = false;
-          damageEnemy(enemy, 1, bullet.x, bullet.y);
+          damageEnemy(enemy, PLAYER.bulletDamage, bullet.x, bullet.y);
           break;
         }
       }
@@ -865,8 +958,8 @@ export function createWorld(random) {
         if (!enemy.active || enemy.isBoss) continue;
         const dx = player.x - enemy.x;
         const dy = player.y - enemy.y;
-        const r = player.radius + enemy.radius - 6;
-        if (dx * dx + dy * dy < r * r) {
+        const ramRadius = player.radius + enemy.radius - 6;
+        if (dx * dx + dy * dy < ramRadius * ramRadius) {
           enemy.active = false;
           addParticles(enemy.x, enemy.y, enemy.colour, 12, 240);
           events |= hitPlayer();
@@ -878,8 +971,8 @@ export function createWorld(random) {
           if (!bullet.active) continue;
           const dx = player.x - bullet.x;
           const dy = player.y - bullet.y;
-          const r = player.radius + bullet.radius - 4;
-          if (dx * dx + dy * dy < r * r) {
+          const grazeRadius = player.radius + bullet.radius - 4;
+          if (dx * dx + dy * dy < grazeRadius * grazeRadius) {
             bullet.active = false;
             addParticles(bullet.x, bullet.y, '#ff5df2', 8, 180);
             events |= hitPlayer();
@@ -888,14 +981,13 @@ export function createWorld(random) {
         }
       }
     }
-    // The Hollow feeds on the lantern.
     if (!attract) {
       for (const enemy of state.enemies) {
         if (!enemy.active || enemy.isBoss) continue;
         const dx = enemy.x - state.lantern.x;
         const dy = enemy.y - state.lantern.y;
-        const r = LANTERN.strikeRadius;
-        if (dx * dx + dy * dy < r * r) {
+        const strikeRadius = LANTERN.strikeRadius;
+        if (dx * dx + dy * dy < strikeRadius * strikeRadius) {
           events |= lanternStrike(enemy);
           if (events & EVENT_OVER) break;
         }
@@ -945,6 +1037,18 @@ export function createWorld(random) {
 
   function step(dt, move, firing, useNova, attract) {
     state.time += dt;
+    // The Nova slowly recharges on its own: a charge every 20 s, up to the
+    // max, so the keeper is never left without a panic button for long.
+    if (state.player.nova < PRISM.maxNova) {
+      state.novaTimer += dt;
+      if (state.novaTimer >= 20) {
+        state.novaTimer = 0;
+        state.player.nova += 1;
+        addFloater(state.player.x, state.player.y - 30, 'NOVA +1', '#ff5df2');
+      }
+    } else {
+      state.novaTimer = 0;
+    }
     let events = 0;
     events |= stepPlayer(dt, move, firing, useNova, attract);
     stepEnemies(dt, attract);
@@ -1030,6 +1134,7 @@ export function createWorld(random) {
     state.flash = 0;
     state.banner = null;
     state.kills = 0;
+    state.novaTimer = 0;
     state.won = false;
     state.endless = false;
     state.turretsBuilt = 0;

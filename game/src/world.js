@@ -11,10 +11,11 @@
 // and on the ship. Survive 20 waves and the Hollow Sun falls; then the Afterglow.
 
 import {
-  BOSS, BULLET, COMBO, DARK_DAMAGE, ENEMY, ENEMY_BULLET, FIELD, LANTERN,
+  BOSS, BULLET, DARK_DAMAGE, ENEMY, ENEMY_BULLET, FIELD, LANTERN,
   LIVES, MUTATORS, NOVA, PLAYER, POOL, PRISM, TURRET, TURRET_RULES,
   UPGRADE, WAVE, WAVES,
 } from './config.js';
+import { createStreak, streakOnHit, streakOnKill, streakStep } from './combo.js';
 import { firePrism } from './prism.js';
 import { initWraith, stepWraith, wraithHaunting, wraithIsSolid, wraithSpeedMult, syncWraithPhases } from './wraith.js';
 import { afterglowMutators, mutatorBannerSub, prismDropFor } from './mutators.js';
@@ -124,9 +125,9 @@ export function createWorld(random) {
     mutator: null,
     boss: null,
     bossPhase: 0,
-    combo: 0,
-    comboTimer: 0,
-    multiplier: 1,
+    /** The kill chain: consecutive kills without a hit, its window and
+     *  its multiplier. The chain's rules live in combo.js. */
+    streak: createStreak(),
     shake: 0,
     flash: 0,
     banner: null,
@@ -318,21 +319,34 @@ export function createWorld(random) {
     }
   }
 
-  // Add points, scaled by the current combo multiplier, and float the gain.
+  // Add points, scaled by the current streak multiplier, and float the gain.
   function award(base, x, y) {
-    const points = Math.round(base * state.multiplier);
+    const points = Math.round(base * state.streak.multiplier);
     state.score += points;
     addFloater(x, y, `+${points}`, '#eaf6ff');
     return points;
   }
 
-  // Count a kill toward the combo: the chain grows and the multiplier with
-  // it (capped), and the combo window refreshes.
+  // Count a kill toward the streak: the chain grows, its window
+  // refreshes, and its multiplier climbs to its tier. Returns what the
+  // kill earned at the chain's milestones, so the caller can pay it.
   function registerKill() {
     state.kills += 1;
-    state.combo += 1;
-    state.comboTimer = COMBO.window;
-    state.multiplier = Math.min(state.combo, COMBO.max);
+    return streakOnKill(state.streak);
+  }
+
+  // Pay a streak's milestones: bonus prisms bank straight away, and a
+  // Nova charge joins the ship's stock (up to the max). A floater says
+  // what the chain earned, so the keeper can see the streak paying.
+  function payStreak(streak, enemy) {
+    if (streak.prisms > 0) {
+      state.prisms += streak.prisms;
+      addFloater(enemy.x, enemy.y - 30, `STREAK +${streak.prisms} ◈`, '#ffd23e');
+    }
+    if (streak.nova > 0 && state.player.nova < PRISM.maxNova) {
+      state.player.nova += 1;
+      addFloater(enemy.x, enemy.y - 48, 'STREAK NOVA +1', '#ff5df2');
+    }
   }
 
   // Feed a kill to the Radiance meter. When the meter breaks into a burst
@@ -369,9 +383,10 @@ export function createWorld(random) {
     if (byNova) {
       award(Math.round(enemy.score * NOVA.share), enemy.x, enemy.y);
     } else {
-      registerKill();
+      const streak = registerKill();
       award(enemy.score, enemy.x, enemy.y);
       dropPrisms(enemy.x, enemy.y, prismDropFor(enemy, ENEMY[enemy.kind].prisms));
+      payStreak(streak, enemy);
       if (radianceGlimmerArmed(state.radiance) && radianceSpendGlimmer(state.radiance)) {
         state.prisms += 1;
         addFloater(enemy.x, enemy.y - 30, 'GLIMMER +1 ◈', '#ffe9a3');
@@ -476,14 +491,12 @@ export function createWorld(random) {
   }
 
   // The keeper is hit: lose a life, gain a grace period, and lose the
-  // combo. If that was the last life, the game is over.
+  // streak. If that was the last life, the game is over.
   function hitPlayer() {
     const player = state.player;
     player.lives -= 1;
     player.invuln = PLAYER.invulnerable;
-    state.combo = 0;
-    state.multiplier = 1;
-    state.comboTimer = 0;
+    streakOnHit(state.streak);
     state.shake = 14;
     state.flash = 0.5;
     addParticles(player.x, player.y, '#2ee6ff', 26, 340);
@@ -1090,13 +1103,8 @@ export function createWorld(random) {
       state.banner.timer -= dt;
       if (state.banner.timer <= 0) state.banner = null;
     }
-    if (state.comboTimer > 0) {
-      state.comboTimer -= dt;
-      if (state.comboTimer <= 0) {
-        state.combo = 0;
-        state.multiplier = 1;
-      }
-    }
+    // The streak's window counts down; a cold chain falls away.
+    streakStep(state.streak, dt);
   }
 
   function step(dt, move, firing, useNova, attract) {
@@ -1193,9 +1201,7 @@ export function createWorld(random) {
     state.mutator = null;
     state.boss = null;
     state.bossPhase = 0;
-    state.combo = 0;
-    state.comboTimer = 0;
-    state.multiplier = 1;
+    state.streak = createStreak();
     state.shake = 0;
     state.flash = 0;
     state.banner = null;

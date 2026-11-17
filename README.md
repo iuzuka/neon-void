@@ -30,12 +30,12 @@ Open `game/index.html` in a desktop browser (or `node serve.ts` and open http://
 - **Rekindle** — R: +60 light radius · **Mend** — B: +25 lantern light · **Fire+** — F · **Hull+1** — H
 - **Pause** — P · **Mute** — M
 
-Prisms drop from kills as green diamonds — fly over them to bank them. Every 5 banked prisms charges a Nova (max 3). Combo kills raise the score multiplier up to x5.
+Prisms drop from kills as green diamonds — fly over them to bank them. Every 5 banked prisms charges a Nova (max 3). A kill streak raises the score multiplier (up to x5) and pays milestones: every 10th kill in a row banks +2 prisms, every 25th charges a Nova.
 
 ## Layout
 
 - `main.ts` — the entrypoint: copies `game/` and `screenshots/` to `/output` and writes `dossier.json`
-- `game/` — the playable game, plain static files: `index.html` and `src/` (one job per file: `config`, `random`, `audio`, `world`, `input`, `render`, `shots`, `main`, plus the Prism update's own modules — `prism`, `wraith`, `mutators`, `radiance`)
+- `game/` — the playable game, plain static files: `index.html` and `src/` (one job per file: `config`, `random`, `audio`, `world`, `input`, `render`, `shots`, `main`, plus the Prism update's own modules — `prism`, `wraith`, `mutators`, `radiance` — and the Streak's `combo`)
   - `world.js` — the simulation: the ship, the Hollow, the lantern and its light, turrets, prisms, bosses, waves, mutators, victory and the Afterglow
   - `render.js` — the look: the lantern's glow and the dark beyond it, turrets, boss bars, the build bar, title / pause / victory / game-over screens
   - `prism.js` — the Prism turret's chain beam: hopping, falloff, final-form spray

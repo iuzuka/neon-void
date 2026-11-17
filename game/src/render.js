@@ -12,6 +12,7 @@ import { prismUpgradeText } from './prism.js';
 import { drawWraith } from './wraith.js';
 import { mutatorSummary, mutatorTint } from './mutators.js';
 import { radianceFill, radianceIsBursting, radianceLabel } from './radiance.js';
+import { streakLabel, streakTimerFraction } from './combo.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -550,15 +551,19 @@ export function createRenderer(canvas) {
     ctx.font = `700 34px ${FONT_MONO}`;
     ctx.fillText(String(state.score).padStart(6, '0'), 24, 68);
     noGlow();
-    // Combo meter under the score.
-    if (state.multiplier > 1) {
+    // Streak meter under the score: the chain's multiplier and length,
+    // with the window as a thin bar that drains as the chain cools off.
+    // It shows while the chain is warm, so the keeper can see the streak
+    // building toward its next tier.
+    const streak = state.streak;
+    if (streak.count > 0) {
       ctx.fillStyle = PALETTE.gold;
       ctx.font = `700 16px ${FONT_MONO}`;
-      ctx.fillText(`COMBO x${state.multiplier}`, 24, 94);
+      ctx.fillText(streakLabel(streak), 24, 94);
       ctx.fillStyle = 'rgba(255, 210, 62, 0.35)';
       ctx.fillRect(24, 102, 120, 5);
       ctx.fillStyle = PALETTE.gold;
-      ctx.fillRect(24, 102, 120 * (state.comboTimer / 2.5), 5);
+      ctx.fillRect(24, 102, 120 * streakTimerFraction(streak), 5);
     }
     // Radiance meter under the score: the climb toward a burst. While a
     // burst burns the bar shows the burst draining instead, so the keeper

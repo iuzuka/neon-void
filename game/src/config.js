@@ -242,8 +242,28 @@ export const UPGRADE = {
   hull: { key: 'h', name: 'Hull +1 ship', cost: 50, max: 2 },
 };
 
-/** Kill streaks within this many seconds raise the score multiplier. */
-export const COMBO = { window: 2.5, max: 5 };
+/** The kill chain (the Streak): how long a chain stays warm, the
+ *  multiplier each length of chain earns, and what the chain pays at its
+ *  milestones. The chain's rules live in combo.js, beside the chain;
+ *  this is only the numbers. */
+export const STREAK = {
+  /** Seconds a chain stays warm without a kill; a kill refreshes it. */
+  window: 4,
+  /** Multiplier tiers: the chain's length sets the score multiplier,
+   *  climbing from x1 to x5 — the top tier is thirty-five kills clean. */
+  tiers: [
+    { at: 0, mult: 1 },
+    { at: 5, mult: 2 },
+    { at: 10, mult: 3 },
+    { at: 20, mult: 4 },
+    { at: 35, mult: 5 },
+  ],
+  /** Every tenth kill in a row banks this many bonus prisms. */
+  prismEvery: 10,
+  prismBonus: 2,
+  /** Every twenty-fifth kill in a row charges one Nova. */
+  novaEvery: 25,
+};
 
 export const NOVA = {
   /** Points each enemy cleared by a Nova is worth, as a share of its score. */

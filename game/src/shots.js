@@ -76,7 +76,7 @@ function playForward(world, seconds, skill) {
  * start) and return the screen to draw over it and the best score to show.
  */
 export function stageShot(name, world) {
-  if (name !== 'play' && name !== 'action' && name !== 'over') {
+  if (name !== 'play' && name !== 'action' && name !== 'over' && name !== 'prism') {
     // Title: the world idles behind the logo, the ship flying its own demo and
     // the keeper's turrets standing guard.
     world.reset(false);
@@ -91,6 +91,24 @@ export function stageShot(name, world) {
     world.reset(false);
     playForward(world, OVER_LIMIT_SECONDS, 0);
     return { screen: SCREEN_OVER, best: world.state.score };
+  }
+  if (name === 'prism') {
+    // The Prism update: a level-2 Prism chaining light between the swarm,
+    // a Pulse and a Lance standing guard, Wraiths phasing through the
+    // dark, the Radiance meter climbing toward a burst.
+    world.stageScene({
+      wave: 8,
+      prisms: 220,
+      turrets: [
+        { kind: 'prism', x: 640, y: 470, level: 2 },
+        { kind: 'pulse', x: 420, y: 480, level: 1 },
+        { kind: 'lance', x: 860, y: 480, level: 1 },
+      ],
+      spawn: 12,
+      force: ['wraith', 'wraith', 'wraith'],
+    });
+    playForward(world, 5, 1);
+    return { screen: SCREEN_PLAY, best: world.state.score };
   }
   if (name === 'action') {
     // Wave 5, the Warden: three turrets (one a final form), the boss on screen,

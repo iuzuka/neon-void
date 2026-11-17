@@ -12,6 +12,7 @@ export const ACTION_MUTE = 8;
 export const ACTION_BUILD_PULSE = 16;
 export const ACTION_BUILD_LANCE = 32;
 export const ACTION_BUILD_NOVA = 64;
+export const ACTION_BUILD_PRISM = 4096;
 export const ACTION_REKINDLE = 128;
 export const ACTION_MEND = 256;
 export const ACTION_FIRE = 512;
@@ -47,6 +48,7 @@ export function createInput(canvas) {
     if (key === '1') queued |= ACTION_BUILD_PULSE;
     if (key === '2') queued |= ACTION_BUILD_LANCE;
     if (key === '3') queued |= ACTION_BUILD_NOVA;
+    if (key === '4') queued |= ACTION_BUILD_PRISM;
     if (key === 'r' || key === 'R') queued |= ACTION_REKINDLE;
     if (key === 'b' || key === 'B') queued |= ACTION_MEND;
     if (key === 'f' || key === 'F') queued |= ACTION_FIRE;

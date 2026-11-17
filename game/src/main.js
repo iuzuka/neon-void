@@ -14,7 +14,7 @@ import {
   EVENT_SECTOR, EVENT_WAVE_CLEAR, EVENT_WIN,
 } from './world.js';
 import {
-  ACTION_BUILD_LANCE, ACTION_BUILD_NOVA, ACTION_BUILD_PULSE, ACTION_CONFIRM,
+  ACTION_BUILD_LANCE, ACTION_BUILD_NOVA, ACTION_BUILD_PRISM, ACTION_BUILD_PULSE, ACTION_CONFIRM,
   ACTION_FIRE, ACTION_HULL, ACTION_MEND, ACTION_MUTE, ACTION_NOVA, ACTION_PAUSE,
   ACTION_REKINDLE, ACTION_UPGRADE, createInput,
 } from './input.js';
@@ -29,7 +29,7 @@ const BUILD_BAR_Y = FIELD.height - 34;
 const BUILD_BAR_X0 = 16;
 const BUILD_BAR_W = 108;
 const BUILD_BAR_GAP = 10;
-const BUILD_BAR_KEYS = ['1', '2', '3', 'r', 'b', 'f', 'h'];
+const BUILD_BAR_KEYS = ['1', '2', '3', '4', 'r', 'b', 'f', 'h'];
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
@@ -140,11 +140,11 @@ function runGame() {
   }
 
   // A build-bar item, by its key: pick a turret kind to place, or buy one
-  // of the lantern/ship actions. Keys 1-3 toggle the turret choice.
+  // of the lantern/ship actions. Keys 1-4 toggle the turret choice.
   function buildBarAction(key) {
     const st = world.state;
-    if (key === '1' || key === '2' || key === '3') {
-      const kind = key === '1' ? 'pulse' : key === '2' ? 'lance' : 'nova';
+    if (key === '1' || key === '2' || key === '3' || key === '4') {
+      const kind = key === '1' ? 'pulse' : key === '2' ? 'lance' : key === '3' ? 'nova' : 'prism';
       st.buildChoice = st.buildChoice === kind ? null : kind;
       announce(st.buildChoice ? `${kind} turret selected. Click the field to place it.` : 'Turret deselected.');
       return;
@@ -208,6 +208,7 @@ function runGame() {
       if (actions & ACTION_BUILD_PULSE) buildBarAction('1');
       if (actions & ACTION_BUILD_LANCE) buildBarAction('2');
       if (actions & ACTION_BUILD_NOVA) buildBarAction('3');
+      if (actions & ACTION_BUILD_PRISM) buildBarAction('4');
       if (actions & ACTION_REKINDLE) buildBarAction('r');
       if (actions & ACTION_MEND) buildBarAction('b');
       if (actions & ACTION_FIRE) buildBarAction('f');

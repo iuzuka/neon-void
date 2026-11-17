@@ -15,6 +15,10 @@ import {
   LIVES, MUTATORS, NOVA, PLAYER, POOL, PRISM, TURRET, TURRET_RULES,
   UPGRADE, WAVE, WAVES,
 } from './config.js';
+import { firePrism } from './prism.js';
+import { initWraith, stepWraith, wraithHaunting, wraithIsSolid, wraithSpeedMult, syncWraithPhases } from './wraith.js';
+import { afterglowMutators, mutatorBannerSub, prismDropFor } from './mutators.js';
+import { createRadiance, radianceDamageMult, radianceGlimmerArmed, radianceLightBonus, radianceOnKill, radianceSpendGlimmer, stepRadiance } from './radiance.js';
 
 export const EVENT_HIT = 1;
 export const EVENT_OVER = 2;
@@ -76,13 +80,14 @@ export function waveDef(wave) {
   if (wave <= TOTAL_WAVES) return WAVES[wave - 1];
   const n = wave - TOTAL_WAVES;
   const scale = 1 + 0.12 * n;
-  const muts = ['swarm', 'armored', 'swift', 'darksurge'];
+  const muts = afterglowMutators();
   const def = {
     drifter: Math.round(20 * scale),
     weaver: Math.round(16 * scale),
     stinger: Math.round(14 * scale),
     shade: Math.round(14 * scale),
     bulwark: Math.round(10 * scale),
+    wraith: Math.round(4 * scale),
     mut: muts[(wave - 1) % muts.length],
   };
   if (wave % 5 === 0) def.boss = 'warden';
@@ -134,6 +139,9 @@ export function createWorld(random) {
     turretsBuilt: 0,
     rekindles: 0,
     mends: 0,
+    /** The Radiance meter: kills feed it, a full meter breaks into a
+     *  burst of brighter light and harder hits. */
+    radiance: createRadiance(),
   };
 
   function addParticles(x, y, colour, count, speed) {
@@ -162,11 +170,13 @@ export function createWorld(random) {
     state.banner = { text, sub, timer: seconds, max: seconds };
   }
 
-  /** The lantern's effective glow radius this wave (mutators can shrink it). */
+  /** The lantern's effective glow radius this wave: a mutator may shrink
+   *  it (Dark Surge, Blood Moon), and a Radiant Burst widens it again. */
   function lightRadius() {
     const base = state.lantern.radius;
-    if (state.mutator === 'darksurge') return base * (MUTATORS.darksurge.lightMult || 0.7);
-    return base;
+    const mut = state.mutator ? MUTATORS[state.mutator] : null;
+    const shrunk = mut && mut.lightMult ? base * mut.lightMult : base;
+    return shrunk + radianceLightBonus(state.radiance);
   }
 
   function inLight(x, y) {
@@ -187,7 +197,7 @@ export function createWorld(random) {
     const def = waveDef(wave);
     const queue = [];
     const mut = def.mut ? MUTATORS[def.mut] : null;
-    const kinds = ['drifter', 'weaver', 'stinger', 'shade', 'bulwark'];
+    const kinds = ['drifter', 'weaver', 'stinger', 'shade', 'bulwark', 'wraith'];
     for (const kind of kinds) {
       let count = def[kind] || 0;
       if (mut && mut.countMult) count = Math.round(count * mut.countMult);
@@ -208,13 +218,15 @@ export function createWorld(random) {
   }
 
   // Bend a fresh enemy to the wave's mutator: tougher, faster, or worth
-  // more, as the mutator says. Health never drops below 1.
+  // more, as the mutator says. Health never drops below 1. A mutator that
+  // pays in prisms stamps the rate on the enemy, so the kill pays it.
   function applyMutatorTo(enemy) {
     const mut = state.mutator ? MUTATORS[state.mutator] : null;
     if (!mut) return;
     if (mut.hpDelta) enemy.hp = Math.max(1, enemy.hp + mut.hpDelta);
     if (mut.speedMult) enemy.speed *= mut.speedMult;
     if (mut.scoreMult) enemy.score = Math.round(enemy.score * mut.scoreMult);
+    if (mut.prismMult) enemy.prismMult = mut.prismMult;
   }
 
   // Bring one enemy into the field at the top, at a random x, drifting down
@@ -247,6 +259,12 @@ export function createWorld(random) {
     applyMutatorTo(enemy);
     enemy.maxHp = enemy.hp;
     state.enemies.push(enemy);
+    if (kind === 'wraith') {
+      // A Wraith arrives with its phase; three of them on the field fall
+      // into step and hunt as a haunting.
+      initWraith(enemy, random);
+      if (wraithHaunting(state.enemies)) syncWraithPhases(state.enemies);
+    }
     state.waveSpawned += 1;
   }
 
@@ -317,6 +335,19 @@ export function createWorld(random) {
     state.multiplier = Math.min(state.combo, COMBO.max);
   }
 
+  // Feed a kill to the Radiance meter. When the meter breaks into a burst
+  // the light drops its prisms and the burst is floated, so the keeper
+  // knows the next eight seconds hit three-quarters as hard again. A floater, not a
+  // banner, so a boss kill keeps its own banner.
+  function feedRadiance(enemy) {
+    const result = radianceOnKill(state.radiance, enemy);
+    if (!result.burst) return;
+    state.prisms += result.prisms;
+    addFloater(enemy.x, enemy.y - 30, `RADIANT BURST  +${result.prisms} ◈`, '#ffe9a3');
+    addParticles(state.lantern.x, state.lantern.y, '#ffe9a3', 30, 320);
+    state.flash = Math.max(state.flash, 0.5);
+  }
+
   // Remove an enemy from the field. A boss pays out its prisms and score,
   // banners its fall, and shakes the screen. A Nova kill pays half score
   // and no combo; a normal kill feeds the combo and drops prisms.
@@ -332,6 +363,7 @@ export function createWorld(random) {
       addParticles(enemy.x, enemy.y, '#ffd23e', 40, 420);
       state.shake = 18;
       state.flash = 0.7;
+      feedRadiance(enemy);
       return;
     }
     if (byNova) {
@@ -339,17 +371,29 @@ export function createWorld(random) {
     } else {
       registerKill();
       award(enemy.score, enemy.x, enemy.y);
-      dropPrisms(enemy.x, enemy.y, ENEMY[enemy.kind].prisms);
+      dropPrisms(enemy.x, enemy.y, prismDropFor(enemy, ENEMY[enemy.kind].prisms));
+      if (radianceGlimmerArmed(state.radiance) && radianceSpendGlimmer(state.radiance)) {
+        state.prisms += 1;
+        addFloater(enemy.x, enemy.y - 30, 'GLIMMER +1 ◈', '#ffe9a3');
+      }
+      feedRadiance(enemy);
     }
   }
 
   // Hurt an enemy. Light is the only real weapon: inside the light an
   // enemy takes the full hit, but out in the dark it is shielded and takes
   // only a fraction. A shielded hit that does not kill floats a SHIELDED
-  // note so the keeper can see why its shots are weak.
+  // note so the keeper can see why its shots are weak. A ghost-phase
+  // Wraith cannot be hurt at all — the hit passes through it, and a
+  // PHASED note says why. A Radiant Burst makes every hit land half as
+  // hard again, lit or dark.
   function damageEnemy(enemy, amount, x, y) {
+    if (enemy.kind === 'wraith' && !wraithIsSolid(enemy)) {
+      addFloater(x, y - 14, 'PHASED', '#c9f2ff');
+      return;
+    }
     const lit = isLit(enemy);
-    const dealt = lit ? amount : amount * DARK_DAMAGE;
+    const dealt = (lit ? amount : amount * DARK_DAMAGE) * radianceDamageMult(state.radiance);
     enemy.hp -= dealt;
     addParticles(x, y, enemy.colour, 2, 110);
     if (!lit && enemy.hp > 0) {
@@ -375,9 +419,9 @@ export function createWorld(random) {
       const sub = def.boss === 'hollowsun'
         ? 'THREE PHASES  •  HOLD THE LIGHT'
         : 'A WARDEN OF THE HOLLOW';
-      setBanner(`WAVE ${state.wave} — ${name}`, state.mutator ? `${sub}  •  ${MUTATORS[state.mutator].label}` : sub, 2.4);
+      setBanner(`WAVE ${state.wave} — ${name}`, state.mutator ? `${sub}  •  ${mutatorBannerSub(state.mutator)}` : sub, 2.4);
     } else {
-      const sub = state.mutator ? MUTATORS[state.mutator].label : 'THE HOLLOW COMES FOR THE LIGHT';
+      const sub = state.mutator ? mutatorBannerSub(state.mutator) : 'THE HOLLOW COMES FOR THE LIGHT';
       setBanner(`WAVE ${state.wave}`, sub, 1.8);
     }
   }
@@ -625,7 +669,9 @@ export function createWorld(random) {
   // What a turret shoots at: a boss first (the biggest threat, if a lit
   // one is in range), otherwise the nearest lit enemy in range. Turrets
   // can only see what the light touches — anything out in the dark is
-  // invisible to them, which is why the light radius matters so much.
+  // invisible to them, which is why the light radius matters so much. A
+  // ghost-phase Wraith is invisible too: it cannot be aimed at until it
+  // turns solid again.
   function nearestLitTarget(turret, stats) {
     const rangeSq = stats.range * stats.range;
     let boss = null;
@@ -645,6 +691,7 @@ export function createWorld(random) {
     let bestDistSq = rangeSq;
     for (const e of state.enemies) {
       if (!e.active || !isLit(e)) continue;
+      if (e.kind === 'wraith' && !wraithIsSolid(e)) continue;
       const dx = e.x - turret.x;
       const dy = e.y - turret.y;
       const distSq = dx * dx + dy * dy;
@@ -675,7 +722,14 @@ export function createWorld(random) {
       if (!target || t.fireTimer > 0) continue;
       t.fireTimer = stats.interval;
       const def = TURRET[t.kind];
-      if (t.kind === 'lance') {
+      if (t.kind === 'prism') {
+        // The Prism splits its light: one shot, a chain of lit enemies.
+        firePrism(state, t, target, stats, {
+          damageEnemy,
+          isLit,
+          spark: addParticles,
+        });
+      } else if (t.kind === 'lance') {
         const dx = target.x - t.x;
         const dy = target.y - t.y;
         const len = Math.hypot(dx, dy) || 1;
@@ -825,6 +879,10 @@ export function createWorld(random) {
       if (!enemy.active) continue;
       enemy.rotation += enemy.spin * dt;
       enemy.phase += dt * 2;
+      if (enemy.kind === 'wraith') {
+        // A Wraith's phase turns on its own clock, and it weaves as it goes.
+        stepWraith(enemy, dt);
+      }
       if (enemy.isBoss) {
         enemy.driftDir = enemy.x > FIELD.width - 140 ? -1 : enemy.x < 140 ? 1 : enemy.driftDir;
         enemy.x += enemy.driftDir * enemy.speed * dt;
@@ -840,6 +898,7 @@ export function createWorld(random) {
         speed *= 1.25;
         if (enemy.kind === 'shade') speed *= ENEMY.shade.darkSpeed;
       }
+      if (enemy.kind === 'wraith') speed *= wraithSpeedMult(enemy);
       const wobble = Math.sin(enemy.phase) * enemy.sway * dt;
       enemy.x += (dx / dist) * speed * dt + wobble;
       enemy.y += (dy / dist) * speed * dt;
@@ -848,7 +907,10 @@ export function createWorld(random) {
         enemy.x += Math.max(-1, Math.min(1, pdx / 60)) * 120 * dt;
       }
       if (enemy.y > FIELD.height + 40) enemy.active = false;
-      if (enemy.y > 0 && enemy.y < ENEMY_BULLET.maxY) {
+      // A ghost-phase Wraith cannot shoot — it is not really there, so its
+      // plasma cannot be either. A solid Wraith shoots like any Hollow.
+      const ghosted = enemy.kind === 'wraith' && !wraithIsSolid(enemy);
+      if (!ghosted && enemy.y > 0 && enemy.y < ENEMY_BULLET.maxY) {
         enemy.fireTimer -= dt;
         if (enemy.fireTimer <= 0 && state.enemyBullets.length < ENEMY_BULLET.max) {
           enemy.fireTimer = enemy.shotInterval + random() * 1.4;
@@ -956,6 +1018,7 @@ export function createWorld(random) {
     if (player.invuln <= 0 && !attract) {
       for (const enemy of state.enemies) {
         if (!enemy.active || enemy.isBoss) continue;
+        if (enemy.kind === 'wraith' && !wraithIsSolid(enemy)) continue;
         const dx = player.x - enemy.x;
         const dy = player.y - enemy.y;
         const ramRadius = player.radius + enemy.radius - 6;
@@ -984,6 +1047,7 @@ export function createWorld(random) {
     if (!attract) {
       for (const enemy of state.enemies) {
         if (!enemy.active || enemy.isBoss) continue;
+        if (enemy.kind === 'wraith' && !wraithIsSolid(enemy)) continue;
         const dx = enemy.x - state.lantern.x;
         const dy = enemy.y - state.lantern.y;
         const strikeRadius = LANTERN.strikeRadius;
@@ -1049,6 +1113,8 @@ export function createWorld(random) {
     } else {
       state.novaTimer = 0;
     }
+    // The Radiance meter leaks and its burst counts down, every step.
+    stepRadiance(state.radiance, dt);
     let events = 0;
     events |= stepPlayer(dt, move, firing, useNova, attract);
     stepEnemies(dt, attract);
@@ -1135,6 +1201,7 @@ export function createWorld(random) {
     state.banner = null;
     state.kills = 0;
     state.novaTimer = 0;
+    state.radiance = createRadiance();
     state.won = false;
     state.endless = false;
     state.turretsBuilt = 0;
@@ -1183,6 +1250,13 @@ export function createWorld(random) {
         spawnEnemy(state.spawnQueue.shift());
         const e = state.enemies[state.enemies.length - 1];
         if (e) e.y = 60 + random() * 320;
+      }
+      // Forced kinds: spawn these exact enemies as well, so a scene can
+      // guarantee a Wraith or a boss is on screen for its screenshot.
+      for (const kind of opts.force || []) {
+        spawnEnemy(kind);
+        const e = state.enemies[state.enemies.length - 1];
+        if (e) e.y = 90 + random() * 240;
       }
       if (opts.lanternHp) state.lantern.hp = opts.lanternHp;
       if (opts.lightRadius) state.lantern.radius = opts.lightRadius;

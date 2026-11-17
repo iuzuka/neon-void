@@ -8,6 +8,10 @@ import {
   ENEMY, FIELD, FONT, FONT_MONO, LANTERN, MUTATORS, PALETTE, PLAYER, PRISM,
   TURRET, TURRET_RULES, UPGRADE,
 } from './config.js';
+import { prismUpgradeText } from './prism.js';
+import { drawWraith } from './wraith.js';
+import { mutatorSummary, mutatorTint } from './mutators.js';
+import { radianceFill, radianceIsBursting, radianceLabel } from './radiance.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -192,6 +196,16 @@ export function createRenderer(canvas) {
         ctx.lineTo(-16, 8);
         ctx.lineTo(-16, -8);
         ctx.closePath();
+      } else if (t.kind === 'prism') {
+        // A Prism is a crystal: a tall diamond with a cut facet, so it
+        // reads as glass, not metal, among the other turrets.
+        ctx.moveTo(0, -20);
+        ctx.lineTo(11, -6);
+        ctx.lineTo(11, 8);
+        ctx.lineTo(0, 18);
+        ctx.lineTo(-11, 8);
+        ctx.lineTo(-11, -6);
+        ctx.closePath();
       } else {
         ctx.arc(0, 0, 16, 0, TAU);
       }
@@ -206,6 +220,17 @@ export function createRenderer(canvas) {
         ctx.fillRect(0, -3.5, 30, 7);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(24, -1.5, 8, 3);
+      } else if (t.kind === 'prism') {
+        // A short, wide emitter with a bright crystal tip: the beam leaves
+        // from the tip, so the barrel points at the first link.
+        ctx.fillRect(0, -4, 16, 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(16, -5);
+        ctx.lineTo(24, 0);
+        ctx.lineTo(16, 5);
+        ctx.closePath();
+        ctx.fill();
       } else {
         ctx.fillRect(0, -5, 18, 10);
         ctx.fillStyle = '#ffffff';
@@ -309,6 +334,11 @@ export function createRenderer(canvas) {
   }
 
   function drawEnemy(e, inLight) {
+    // A Wraith draws its own ghost, solid or faint as its phase says.
+    if (e.kind === 'wraith') {
+      drawWraith(ctx, e, inLight ? 1 : 0.55);
+      return;
+    }
     ctx.save();
     ctx.translate(e.x, e.y);
     ctx.rotate(e.rotation);
@@ -530,6 +560,18 @@ export function createRenderer(canvas) {
       ctx.fillStyle = PALETTE.gold;
       ctx.fillRect(24, 102, 120 * (state.comboTimer / 2.5), 5);
     }
+    // Radiance meter under the score: the climb toward a burst. While a
+    // burst burns the bar shows the burst draining instead, so the keeper
+    // can see how much light is left.
+    const rad = state.radiance;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = radianceIsBursting(rad) ? '#ffe9a3' : PALETTE.muted;
+    ctx.font = `600 13px ${FONT_MONO}`;
+    ctx.fillText(radianceLabel(rad), 24, 122);
+    ctx.fillStyle = 'rgba(255, 233, 163, 0.3)';
+    ctx.fillRect(24, 130, 120, 5);
+    ctx.fillStyle = radianceIsBursting(rad) ? '#ffe9a3' : '#ffd23e';
+    ctx.fillRect(24, 130, 120 * Math.max(0, Math.min(1, radianceFill(rad))), 5);
     // Wave, top centre.
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.muted;
@@ -541,7 +583,7 @@ export function createRenderer(canvas) {
     ctx.fillText(state.waveState === 'build' ? 'BUILD' : String(state.wave), FIELD.width / 2, 68);
     noGlow();
     if (state.mutator) {
-      ctx.fillStyle = PALETTE.gold;
+      ctx.fillStyle = mutatorTint(state.mutator);
       ctx.font = `700 13px ${FONT_MONO}`;
       ctx.fillText(MUTATORS[state.mutator].label, FIELD.width / 2, 92);
     }
@@ -625,6 +667,7 @@ export function createRenderer(canvas) {
       { key: '1', label: 'PULSE', cost: TURRET.pulse.cost, colour: TURRET.pulse.colour },
       { key: '2', label: 'LANCE', cost: TURRET.lance.cost, colour: TURRET.lance.colour },
       { key: '3', label: 'NOVA', cost: TURRET.nova.cost, colour: TURRET.nova.colour },
+      { key: '4', label: 'PRISM', cost: TURRET.prism.cost, colour: TURRET.prism.colour },
       { key: 'R', label: 'REKINDLE', cost: 25, colour: PALETTE.lantern },
       { key: 'B', label: 'MEND', cost: 30, colour: '#8dff5a' },
       { key: 'F', label: 'FIRE+', cost: UPGRADE.fire.cost, colour: PALETTE.player },
@@ -651,15 +694,17 @@ export function createRenderer(canvas) {
       ctx.fillText(`◈${item.cost}`, x + 78, y0 + h / 2 + 1);
       x += w + 10;
     }
-    // Selected turret upgrade, right side.
+    // Selected turret upgrade, right side. A Prism's offer names its
+    // chain, so the keeper is choosing links, not just a level.
     const sel = state.selectedTurret;
     if (sel) {
       const def = TURRET[sel.kind];
       const canUp = sel.level < TURRET_RULES.levels;
       const cost = canUp ? Math.round(def.cost * TURRET_RULES.upgradeCostMult[sel.level]) : 0;
+      const detail = sel.kind === 'prism' && canUp ? prismUpgradeText(sel.level) : `LV${sel.level + 1}`;
       ctx.textAlign = 'right';
       ctx.fillStyle = canUp ? PALETTE.gold : PALETTE.muted;
-      ctx.fillText(canUp ? `[U] UPGRADE ${def.name} → LV${sel.level + 1}  ◈${cost}` : `${def.name} — FINAL FORM`, FIELD.width - 16, y0 + h / 2 + 1);
+      ctx.fillText(canUp ? `[U] UPGRADE ${def.name} → ${detail}  ◈${cost}` : `${def.name} — FINAL FORM`, FIELD.width - 16, y0 + h / 2 + 1);
     } else if (state.waveState === 'build') {
       ctx.textAlign = 'right';
       const t = Math.max(0, state.waveTimer);
@@ -720,10 +765,11 @@ export function createRenderer(canvas) {
     ctx.fillText('enemies burn and turrets can aim — in the dark they are shielded and fast.', FIELD.width / 2, 332);
     ctx.fillStyle = PALETTE.muted;
     ctx.font = `400 17px ${FONT}`;
-    ctx.fillText('20 waves  •  3 turrets with final forms  •  bosses every 5 waves, a 3-phase sun at 20', FIELD.width / 2, 366);
-    ctx.fillText('mutators  •  prisms buy turrets, light and repairs  •  then the Endless Afterglow', FIELD.width / 2, 392);
+    ctx.fillText('20 waves  •  4 turrets with final forms  •  bosses every 5 waves, a 3-phase sun at 20', FIELD.width / 2, 366);
+    const mutNames = mutatorSummary().map((m) => m.label.split(' — ')[0].toLowerCase()).join(' · ');
+    ctx.fillText(`mutators: ${mutNames}  •  wraiths phase in and out  •  radiance fills toward a burst`, FIELD.width / 2, 392);
     ctx.fillText('Move — Arrows / WASD / Mouse      Fire — Space / Click      Nova — X / Right-click', FIELD.width / 2, 428);
-    ctx.fillText('Build — 1 / 2 / 3, then click the field      Upgrade — click a turret, press U', FIELD.width / 2, 452);
+    ctx.fillText('Build — 1 / 2 / 3 / 4, then click the field      Upgrade — click a turret, press U', FIELD.width / 2, 452);
     ctx.fillText('Rekindle — R      Mend — B      Fire+ — F      Hull — H      Pause — P      Mute — M', FIELD.width / 2, 476);
     if (best > 0) {
       ctx.fillStyle = PALETTE.gold;

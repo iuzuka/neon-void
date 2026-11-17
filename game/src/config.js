@@ -19,6 +19,15 @@
 // light starts wider and shrinks slower, and the keeper starts with enough
 // prisms to stand two turrets up before wave 1. The lantern, the waves and
 // the bosses are barely touched — the game is still a fight, just a fair one.
+//
+// NEW SINCE THEN (the Prism update): a fourth turret, the Prism, whose beam
+// chains from one lit Hollow to the next; a sixth Hollow, the Wraith, which
+// phases between solid and ghost; two new mutators, Gilded and Blood Moon,
+// which trade in prisms as well as pain; and Radiance, a meter that turns
+// a long run of kills into a burst of brighter light and harder hits. The
+// new systems live in their own modules — prism.js, wraith.js,
+// mutators.js, radiance.js — and this file holds only the numbers the wave
+// table and the HUD need to name them.
 
 export const FIELD = { width: 1280, height: 720 };
 
@@ -86,12 +95,19 @@ export const ENEMY = {
   stinger: { radius: 16, hp: 1, speed: 260, score: 150, colour: '#ff3b30', lantern: 5, prisms: 2 },
   shade: { radius: 17, hp: 1, speed: 300, score: 120, colour: '#b06bff', lantern: 4, prisms: 2, darkSpeed: 1.35 },
   bulwark: { radius: 30, hp: 6, speed: 70, score: 300, colour: '#8fa3d9', lantern: 10, prisms: 4 },
+  /** The Wraith: slow, little hide, and it phases — half its life a ghost
+   *  no weapon can touch, half solid and hittable. It pays three prisms
+   *  for the wait. Its phase timings live in wraith.js, beside the ghost. */
+  wraith: { radius: 19, hp: 2, speed: 95, score: 200, colour: '#c9f2ff', lantern: 6, prisms: 3 },
 };
 
 /** Turrets: the tower-defence half. Each has three levels; level 3 is its final
  *  form. Turrets only fire at enemies inside the lantern's light. Costs are a
  *  little lower than before (Pulse 40, Lance 80, Nova 140) so the keeper can
- *  stand a second turret up a wave sooner. */
+ *  stand a second turret up a wave sooner. The fourth turret is the Prism:
+ *  a chain beam that splits its light from one lit Hollow to the next, so it
+ *  earns its keep against a crowd and its final form sprays the neighbours
+ *  too. Its chain rules live in prism.js, beside the beam. */
 export const TURRET = {
   pulse: {
     name: 'Pulse', key: '1', cost: 35, range: 230, damage: 1.5, fireInterval: 0.28,
@@ -104,6 +120,10 @@ export const TURRET = {
   nova: {
     name: 'Nova', key: '3', cost: 120, range: 300, damage: 6, fireInterval: 1.6,
     bulletSpeed: 420, colour: '#ff5df2', desc: 'splash mortar', splash: 90,
+  },
+  prism: {
+    name: 'Prism', key: '4', cost: 95, range: 300, damage: 2, fireInterval: 0.7,
+    bulletSpeed: 0, colour: '#7dffd4', desc: 'chain beam',
   },
 };
 
@@ -137,20 +157,20 @@ export const WAVES = [
   { drifter: 9, weaver: 5, stinger: 2 },
   { drifter: 10, weaver: 5, stinger: 3, shade: 2 },
   { drifter: 5, boss: 'warden' },
-  { drifter: 9, weaver: 7, stinger: 5, shade: 3, mut: 'darksurge' },
+  { drifter: 9, weaver: 7, stinger: 5, shade: 3, wraith: 2, mut: 'darksurge' },
   { drifter: 10, weaver: 7, stinger: 5, shade: 5, bulwark: 2 },
-  { drifter: 12, weaver: 9, stinger: 7, shade: 5, bulwark: 2, mut: 'swarm' },
-  { drifter: 12, weaver: 9, stinger: 7, shade: 7, bulwark: 3 },
+  { drifter: 12, weaver: 9, stinger: 7, shade: 5, bulwark: 2, wraith: 2, mut: 'swarm' },
+  { drifter: 12, weaver: 9, stinger: 7, shade: 7, bulwark: 3, mut: 'bloodmoon' },
   { drifter: 7, weaver: 3, boss: 'warden' },
-  { drifter: 14, weaver: 10, stinger: 9, shade: 7, bulwark: 3, mut: 'armored' },
+  { drifter: 14, weaver: 10, stinger: 9, shade: 7, bulwark: 3, wraith: 3, mut: 'armored' },
   { drifter: 14, weaver: 10, stinger: 9, shade: 9, bulwark: 5, mut: 'swift' },
-  { drifter: 15, weaver: 10, stinger: 10, shade: 9, bulwark: 5 },
+  { drifter: 15, weaver: 10, stinger: 10, shade: 9, bulwark: 5, wraith: 3, mut: 'gilded' },
   { drifter: 15, weaver: 12, stinger: 10, shade: 10, bulwark: 6, mut: 'darksurge' },
   { drifter: 9, weaver: 5, stinger: 3, boss: 'warden' },
-  { drifter: 17, weaver: 12, stinger: 12, shade: 10, bulwark: 6, mut: 'swarm' },
+  { drifter: 17, weaver: 12, stinger: 12, shade: 10, bulwark: 6, wraith: 4, mut: 'swarm' },
   { drifter: 17, weaver: 14, stinger: 12, shade: 12, bulwark: 6, mut: 'armored' },
-  { drifter: 19, weaver: 14, stinger: 14, shade: 12, bulwark: 7, mut: 'swift' },
-  { drifter: 19, weaver: 15, stinger: 14, shade: 14, bulwark: 8, mut: 'darksurge' },
+  { drifter: 19, weaver: 14, stinger: 14, shade: 12, bulwark: 7, wraith: 4, mut: 'swift' },
+  { drifter: 19, weaver: 15, stinger: 14, shade: 14, bulwark: 8, mut: 'bloodmoon' },
   { drifter: 7, boss: 'hollowsun' },
 ];
 
@@ -176,12 +196,18 @@ export const WAVE = {
 /** Wave mutators: what each one does to the wave. All three are softer than
  *  before — a mutator should change how a wave plays, not end the run by
  *  itself. Dark Surge shrinks the light less (was 0.7), Armored adds one
- *  hide instead of two, Swift runs slower (was 1.4). */
+ *  hide instead of two, Swift runs slower (was 1.4). The two new ones trade
+ *  in prisms, not just pain: Gilded makes every hide gilded — one more hit
+ *  to kill, twice the prisms, half as much score again — and Blood Moon
+ *  thins the light and quickens the Hollow but pays half as many prisms
+ *  again. Their rules live in mutators.js, beside the prism maths. */
 export const MUTATORS = {
   darksurge: { label: 'DARK SURGE — the light shrinks', lightMult: 0.8 },
   swarm: { label: 'SWARM — twice the Hollow, thinner hides', countMult: 1.5, hpDelta: -1 },
   armored: { label: 'ARMORED — thick hides, slow march', hpDelta: 1, speedMult: 0.85 },
   swift: { label: 'SWIFT — the Hollow runs', speedMult: 1.25, scoreMult: 0.75 },
+  gilded: { label: 'GILDED — rich hides, double prisms', hpDelta: 1, prismMult: 2, scoreMult: 1.5 },
+  bloodmoon: { label: 'BLOOD MOON — red light, hungry dark', lightMult: 0.9, speedMult: 1.05, prismMult: 1.5 },
 };
 
 /** Bosses. Wardens guard waves 5, 10 and 15; the Hollow Sun is wave 20's
@@ -229,11 +255,14 @@ export const BULLET = { radius: 5 };
 /** Plasma the swarm shoots back: the answer to camping in one spot.
  *  Slower (was 300) and wilder (was 46) than before, and fewer of them
  *  at once (was 32): the return fire is what killed the keeper most
- *  often, and a bullet the keeper can see coming is a bullet it can dodge. */
+ *  often, and a bullet the keeper can see coming is a bullet it can dodge.
+ *  Trimmed once more (16 at once, 220 speed): the late waves fill the sky
+ *  with plasma, and a keeper who cannot see a gap cannot dodge — the
+ *  swarm still shoots, it just leaves room to fly. */
 export const ENEMY_BULLET = {
   radius: 6,
-  speed: 240,
-  max: 20,
+  speed: 220,
+  max: 16,
   /** Shots only come from the upper half, aimed at the ship with this error. */
   maxY: 420,
   aimError: 70,
